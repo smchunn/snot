@@ -96,7 +96,7 @@ function M.find_note(query)
     end
 
     -- Use fzf to pick a file
-    vim.fn.fzf#run(vim.fn.fzf#wrap({
+    vim.fn["fzf#run"](vim.fn["fzf#wrap"]({
       source = files,
       sink = function(selected)
         vim.cmd("edit " .. selected)
@@ -192,7 +192,7 @@ function M.insert_link()
     end
 
     -- Use fzf to pick a file
-    vim.fn.fzf#run(vim.fn.fzf#wrap({
+    vim.fn["fzf#run"](vim.fn["fzf#wrap"]({
       source = files,
       sink = function(selected)
         -- Extract note name from path and create wiki link
