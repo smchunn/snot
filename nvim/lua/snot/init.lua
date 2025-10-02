@@ -38,6 +38,23 @@ function M.setup(opts)
       require("snot.completion").setup_cmp()
     end)
   end
+
+  -- Set up autocmd to update cache on save
+  vim.api.nvim_create_autocmd("BufWritePost", {
+    pattern = "*.md",
+    callback = function(args)
+      local file_path = args.file
+      -- Only update if file is in vault
+      if config.vault_path and vim.startswith(file_path, config.vault_path) then
+        local backend = require("snot.backend")
+        backend.update_note(file_path, function(err, _)
+          if err then
+            vim.notify("Failed to update note cache: " .. err, vim.log.levels.WARN)
+          end
+        end)
+      end
+    end,
+  })
 end
 
 function M.get_config()

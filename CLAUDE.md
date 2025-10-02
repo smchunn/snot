@@ -1,6 +1,7 @@
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Below this line, if you see !!, treat that as a command to update the section of markdown with whatever prompt follows !! and delete the prompt after
 
 ## Project Overview
 
@@ -59,6 +60,7 @@ cargo run -- watch ./test_vault
 
 ### High-Level Design
 
+!! update high level design to accurately reflect
 The project follows a modular architecture with clear separation of concerns:
 
 1. **Database Layer (`src/db/`)**: Custom in-memory database with multiple indexes
@@ -93,6 +95,8 @@ The project follows a modular architecture with clear separation of concerns:
 
 ### Key Design Decisions
 
+!! update design decisions to reflect current state of codebase
+
 1. **Custom Database vs SQLite**: Built from scratch for learning and performance
    - Allows fine-grained control over indexing strategy
    - No SQL overhead for simple operations
@@ -123,6 +127,7 @@ The project follows a modular architecture with clear separation of concerns:
 ### Note ID Generation
 
 Notes are identified by their relative path within the vault, converted to kebab-case:
+
 - `vault/work/meeting-notes.md` → ID: `work-meeting-notes`
 - Path separators become hyphens
 - Extension removed
@@ -131,6 +136,7 @@ Notes are identified by their relative path within the vault, converted to kebab
 ### Link Resolution
 
 Wiki-links `[[note-name]]` are resolved using normalized IDs:
+
 - `[[Work Meeting]]` → links to note with ID `work-meeting`
 - Display text supported: `[[note-name|Custom Text]]`
 - Links are bidirectional - backlinks automatically tracked
@@ -138,6 +144,7 @@ Wiki-links `[[note-name]]` are resolved using normalized IDs:
 ### Database Update Strategy
 
 The `update()` method has a specific pattern to avoid borrow checker issues:
+
 1. Clone necessary data from old note (tags, links, paths, dates)
 2. Remove old indexes using cloned data
 3. Insert new note with updated indexes
@@ -146,6 +153,7 @@ The `update()` method has a specific pattern to avoid borrow checker issues:
 ### File Watching Considerations
 
 The file watcher uses `notify` which requires keeping the watcher alive:
+
 - Current implementation leaks the watcher (`std::mem::forget`)
 - In production, should use proper lifecycle management
 - Watch mode runs indefinitely until Ctrl+C
@@ -153,6 +161,7 @@ The file watcher uses `notify` which requires keeping the watcher alive:
 ### Query Execution Performance
 
 Queries are executed in-memory with set operations:
+
 - Tag queries: O(1) lookup in tag_index
 - Content search: O(n) scan with early termination
 - Date ranges: O(log n) BTree range iteration
@@ -161,26 +170,33 @@ Queries are executed in-memory with set operations:
 
 ## Neovim Plugin Notes
 
+!! include a list of all neovim functions
+
 ### FZF Integration
 
 The plugin uses `vim.fn.fzf#run` for file picking:
+
 - Requires FZF to be installed and in PATH
 - Uses preview window showing file content with `cat`
 - Returns selected file path which is then opened with `:edit`
 
 ### Completion System
 
+!! support blink.cmp as well
 Two completion modes:
+
 1. **Omnifunc** (built-in): Works everywhere, activated with `<C-X><C-O>`
 2. **nvim-cmp** (optional): Better UX if user has nvim-cmp installed
 
 Completion triggers:
+
 - `[[` triggers note name completion
 - `#` triggers tag completion
 
 ### Async Communication
 
 All backend calls use `vim.fn.jobstart` for async execution:
+
 - Non-blocking - editor remains responsive
 - stdout/stderr captured in buffers
 - Callback invoked on job completion
@@ -191,6 +207,7 @@ All backend calls use `vim.fn.jobstart` for async execution:
 ### Unit Tests
 
 Each module has inline tests:
+
 ```bash
 cargo test parser::tests::test_extract_tags
 cargo test db::query::tests::test_parse_and_query
@@ -199,6 +216,7 @@ cargo test db::query::tests::test_parse_and_query
 ### Integration Testing
 
 Manual testing workflow:
+
 1. Create test vault: `cargo run -- init ./test_vault`
 2. Add sample markdown files
 3. Index: `cargo run -- index ./test_vault`
@@ -208,6 +226,7 @@ Manual testing workflow:
 ### Performance Testing
 
 For large vaults:
+
 1. Generate 1000+ test notes with script
 2. Measure initial index time
 3. Modify one file
@@ -235,6 +254,7 @@ For large vaults:
 ### Modifying Database Schema
 
 When changing `Note` struct:
+
 1. Update `Note` definition in `src/db/storage.rs`
 2. Update all indexes that might use new field
 3. Modify `insert()`, `update()`, `delete()` as needed
@@ -244,6 +264,7 @@ When changing `Note` struct:
 ### Extending Markdown Parser
 
 To support new markdown features:
+
 1. Add extraction logic to `src/parser/links.rs`
 2. Update `ParsedNote` struct with new fields
 3. Update note processing in `src/commands/index.rs`

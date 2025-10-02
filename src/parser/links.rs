@@ -5,7 +5,7 @@ use anyhow::Result;
 #[derive(Debug, Clone)]
 pub struct ParsedNote {
     pub title: String,
-    pub content: String,
+    pub aliases: Vec<String>,
     pub tags: HashSet<String>,
     pub links: HashSet<String>,
     pub frontmatter: Option<String>,
@@ -18,10 +18,12 @@ impl MarkdownParser {
         let (frontmatter, content_without_fm) = Self::extract_frontmatter(content);
 
         let mut tags = Self::extract_tags(&content_without_fm);
+        let mut aliases = Vec::new();
 
-        // Also extract tags from frontmatter if present
+        // Extract tags and aliases from frontmatter if present
         if let Some(ref fm) = frontmatter {
             tags.extend(Self::extract_frontmatter_tags(fm));
+            aliases = Self::extract_frontmatter_aliases(fm);
         }
 
         let links = Self::extract_links(&content_without_fm);
@@ -29,7 +31,7 @@ impl MarkdownParser {
 
         Ok(ParsedNote {
             title,
-            content: content.to_string(),
+            aliases,
             tags,
             links,
             frontmatter,
@@ -52,6 +54,7 @@ impl MarkdownParser {
 
     fn extract_frontmatter_tags(frontmatter: &str) -> HashSet<String> {
         let mut tags = HashSet::new();
+        let mut in_tags_section = false;
 
         // Look for tags in YAML frontmatter
         // Support both:
@@ -75,19 +78,70 @@ impl MarkdownParser {
                         }
                     }
                 }
+                in_tags_section = true;
+                continue;
             }
 
-            // List format: - tag
-            if line.starts_with("- ") {
+            // List format: - tag (only if we're in tags section)
+            if in_tags_section && line.starts_with("- ") {
                 let tag = line.strip_prefix("- ").unwrap().trim();
                 let tag = tag.trim_matches('"').trim_matches('\'');
                 if !tag.is_empty() {
                     tags.insert(tag.to_string());
                 }
+            } else if in_tags_section && !line.is_empty() && !line.starts_with("- ") {
+                // Exit tags section if we hit a non-list item
+                in_tags_section = false;
             }
         }
 
         tags
+    }
+
+    fn extract_frontmatter_aliases(frontmatter: &str) -> Vec<String> {
+        let mut aliases = Vec::new();
+        let mut in_aliases_section = false;
+
+        // Look for aliases in YAML frontmatter
+        // Support both:
+        // aliases: [alias1, alias2]
+        // aliases:
+        //   - alias1
+        //   - alias2
+
+        for line in frontmatter.lines() {
+            let line = line.trim();
+
+            // Array format: aliases: [alias1, alias2]
+            if line.starts_with("aliases:") {
+                let aliases_str = line.strip_prefix("aliases:").unwrap().trim();
+                if aliases_str.starts_with('[') && aliases_str.ends_with(']') {
+                    let aliases_content = &aliases_str[1..aliases_str.len()-1];
+                    for alias in aliases_content.split(',') {
+                        let alias = alias.trim().trim_matches('"').trim_matches('\'');
+                        if !alias.is_empty() {
+                            aliases.push(alias.to_string());
+                        }
+                    }
+                }
+                in_aliases_section = true;
+                continue;
+            }
+
+            // List format: - alias (only if we're in aliases section)
+            if in_aliases_section && line.starts_with("- ") {
+                let alias = line.strip_prefix("- ").unwrap().trim();
+                let alias = alias.trim_matches('"').trim_matches('\'');
+                if !alias.is_empty() {
+                    aliases.push(alias.to_string());
+                }
+            } else if in_aliases_section && !line.is_empty() && !line.starts_with("- ") {
+                // Exit aliases section if we hit a non-list item
+                in_aliases_section = false;
+            }
+        }
+
+        aliases
     }
 
     fn extract_tags(content: &str) -> HashSet<String> {

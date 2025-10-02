@@ -1,6 +1,8 @@
 use super::storage::{Database, Note};
 use chrono::{DateTime, Utc, NaiveDate};
 use std::collections::HashSet;
+use std::process::Command;
+use std::path::PathBuf;
 use anyhow::{Result, anyhow};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -266,7 +268,7 @@ impl<'a> QueryExecutor<'a> {
         match query {
             Query::All => self.db.get_all(),
             Query::Tag(tag) => self.db.get_by_tag(tag),
-            Query::Contains(text) => self.db.search_content(text),
+            Query::Contains(text) => self.search_content(text),
             Query::LinkedTo(note_id) => self.db.get_backlinks(note_id),
             Query::DateRange(start, end) => self.db.get_in_date_range(*start, *end),
             Query::And(left, right) => {
@@ -285,6 +287,72 @@ impl<'a> QueryExecutor<'a> {
                 self.difference(all_results, inner_results)
             }
         }
+    }
+
+    fn search_content(&self, text: &str) -> Vec<&'a Note> {
+        let file_paths = self.db.get_all_file_paths();
+        if file_paths.is_empty() {
+            return Vec::new();
+        }
+
+        // Try ripgrep first, then grep
+        let matching_paths = if let Ok(paths) = self.search_with_ripgrep(text, &file_paths) {
+            paths
+        } else if let Ok(paths) = self.search_with_grep(text, &file_paths) {
+            paths
+        } else {
+            // Fallback: search in titles/aliases only
+            return self.db.get_all().into_iter()
+                .filter(|note| {
+                    note.title.to_lowercase().contains(&text.to_lowercase()) ||
+                    note.aliases.iter().any(|a| a.to_lowercase().contains(&text.to_lowercase()))
+                })
+                .collect();
+        };
+
+        self.db.get_notes_by_paths(&matching_paths)
+    }
+
+    fn search_with_ripgrep(&self, text: &str, files: &[PathBuf]) -> Result<Vec<PathBuf>> {
+        let output = Command::new("rg")
+            .arg("-i") // case insensitive
+            .arg("-l") // files with matches only
+            .arg("--")
+            .arg(text)
+            .args(files)
+            .output()?;
+
+        if !output.status.success() {
+            return Err(anyhow!("ripgrep failed"));
+        }
+
+        let paths = String::from_utf8(output.stdout)?
+            .lines()
+            .map(PathBuf::from)
+            .collect();
+
+        Ok(paths)
+    }
+
+    fn search_with_grep(&self, text: &str, files: &[PathBuf]) -> Result<Vec<PathBuf>> {
+        let output = Command::new("grep")
+            .arg("-i") // case insensitive
+            .arg("-l") // files with matches only
+            .arg("--")
+            .arg(text)
+            .args(files)
+            .output()?;
+
+        if !output.status.success() {
+            return Err(anyhow!("grep failed"));
+        }
+
+        let paths = String::from_utf8(output.stdout)?
+            .lines()
+            .map(PathBuf::from)
+            .collect();
+
+        Ok(paths)
     }
 
     fn intersect(&self, left: Vec<&'a Note>, right: Vec<&'a Note>) -> Vec<&'a Note> {

@@ -44,6 +44,13 @@ enum Commands {
         /// Note name
         name: String,
     },
+    /// Update a single note's metadata in the cache
+    Update {
+        /// Path to the vault directory
+        vault_path: PathBuf,
+        /// Path to the note file
+        file: PathBuf,
+    },
     /// Get backlinks for a note
     Backlinks {
         /// Path to the vault directory
@@ -81,6 +88,9 @@ fn main() -> Result<()> {
         }
         Commands::Create { vault_path, name } => {
             commands::create_note(&vault_path, &name)?;
+        }
+        Commands::Update { vault_path, file } => {
+            commands::update_note(&vault_path, &file)?;
         }
         Commands::Backlinks { vault_path, file } => {
             commands::get_backlinks(&vault_path, &file)?;

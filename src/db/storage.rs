@@ -12,7 +12,7 @@ pub type NoteId = String;
 pub struct Note {
     pub id: NoteId,
     pub title: String,
-    pub content: String,
+    pub aliases: Vec<String>,
     pub file_path: PathBuf,
     pub tags: HashSet<String>,
     pub links: HashSet<String>,
@@ -26,7 +26,6 @@ impl Note {
     pub fn new(
         id: NoteId,
         title: String,
-        content: String,
         file_path: PathBuf,
         checksum: String,
     ) -> Self {
@@ -34,7 +33,7 @@ impl Note {
         Self {
             id,
             title,
-            content,
+            aliases: Vec::new(),
             file_path,
             tags: HashSet::new(),
             links: HashSet::new(),
@@ -45,8 +44,7 @@ impl Note {
         }
     }
 
-    pub fn update_content(&mut self, content: String, checksum: String) {
-        self.content = content;
+    pub fn update_metadata(&mut self, checksum: String) {
         self.checksum = checksum;
         self.modified_at = Utc::now();
     }
@@ -252,14 +250,13 @@ impl Database {
         self.notes.values().collect()
     }
 
-    pub fn search_content(&self, query: &str) -> Vec<&Note> {
-        let query_lower = query.to_lowercase();
-        self.notes
-            .values()
-            .filter(|note| {
-                note.content.to_lowercase().contains(&query_lower)
-                    || note.title.to_lowercase().contains(&query_lower)
-            })
+    pub fn get_all_file_paths(&self) -> Vec<PathBuf> {
+        self.notes.values().map(|note| note.file_path.clone()).collect()
+    }
+
+    pub fn get_notes_by_paths(&self, paths: &[PathBuf]) -> Vec<&Note> {
+        paths.iter()
+            .filter_map(|path| self.get_by_path(path))
             .collect()
     }
 

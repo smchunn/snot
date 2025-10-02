@@ -118,4 +118,8 @@ function M.list_notes(query, callback)
   M.run_command(args, callback)
 end
 
+function M.update_note(file_path, callback)
+  M.run_command({ "update", get_vault_path(), file_path }, callback)
+end
+
 return M

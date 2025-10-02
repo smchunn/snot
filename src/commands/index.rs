@@ -67,11 +67,11 @@ fn process_file(
     let mut note = Note::new(
         note_id,
         parsed.title,
-        parsed.content,
         path.to_path_buf(),
         checksum,
     );
 
+    note.aliases = parsed.aliases;
     note.tags = parsed.tags;
     note.links = parsed.links;
 

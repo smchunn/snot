@@ -53,10 +53,10 @@ fn handle_file_event(
                 let mut note = Note::new(
                     note_id.clone(),
                     parsed.title,
-                    parsed.content,
                     path.to_path_buf(),
                     checksum,
                 );
+                note.aliases = parsed.aliases;
                 note.tags = parsed.tags;
                 note.links = parsed.links;
 
@@ -66,10 +66,10 @@ fn handle_file_event(
                 let mut note = Note::new(
                     note_id,
                     parsed.title,
-                    parsed.content,
                     path.to_path_buf(),
                     checksum,
                 );
+                note.aliases = parsed.aliases;
                 note.tags = parsed.tags;
                 note.links = parsed.links;
 
