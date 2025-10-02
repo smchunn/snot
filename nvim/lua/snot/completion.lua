@@ -168,4 +168,63 @@ function M.setup_cmp()
   cmp.register_source("snot", source)
 end
 
+-- blink.cmp source implementation
+-- This is called directly by blink.cmp when configured
+M.blink = {}
+
+function M.blink.new(opts)
+  local self = setmetatable({}, { __index = M.blink })
+  self.opts = opts or {}
+  return self
+end
+
+function M.blink:enabled()
+  return vim.bo.filetype == "markdown"
+end
+
+function M.blink:get_trigger_characters()
+  return { "[", "#" }
+end
+
+function M.blink:get_completions(ctx, callback)
+  update_cache()
+
+  local line = ctx.line
+  local items = {}
+
+  -- Wiki link completion
+  if line:match("%[%[[^%]]*$") then
+    for _, note in ipairs(cache.notes) do
+      table.insert(items, {
+        label = note,
+        kind = 1, -- File kind (LSP CompletionItemKind)
+        insertText = note .. "]]",
+        sortText = note,
+        filterText = note,
+      })
+    end
+  end
+
+  -- Tag completion
+  if line:match("#[%w_-]*$") then
+    for _, tag in ipairs(cache.tags) do
+      table.insert(items, {
+        label = "#" .. tag,
+        kind = 14, -- Keyword kind (LSP CompletionItemKind)
+        insertText = "#" .. tag,
+        sortText = tag,
+        filterText = tag,
+      })
+    end
+  end
+
+  callback({ items = items, isIncomplete = false })
+end
+
+-- Helper function to setup blink.cmp (optional, for auto-registration)
+function M.setup_blink()
+  -- blink.cmp will load the source via module path
+  -- No explicit registration needed
+end
+
 return M

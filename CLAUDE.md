@@ -254,11 +254,20 @@ Completion triggers:
 
 To integrate with blink.cmp, add snot as a source in your blink.cmp config:
 ```lua
-sources = {
-  providers = {
-    snot = {
-      module = 'snot.completion',
-      name = 'snot',
+{
+  'saghen/blink.cmp',
+  opts = {
+    sources = {
+      default = { 'lsp', 'path', 'snippets', 'buffer', 'snot' },
+      providers = {
+        snot = {
+          name = 'Snot',
+          module = 'snot.completion.blink',
+          enabled = function()
+            return vim.bo.filetype == 'markdown'
+          end,
+        },
+      },
     },
   },
 }

@@ -37,6 +37,11 @@ function M.setup(opts)
     pcall(function()
       require("snot.completion").setup_cmp()
     end)
+
+    -- Try to set up blink.cmp integration if available
+    pcall(function()
+      require("snot.completion").setup_blink()
+    end)
   end
 
   -- Set up autocmd to update cache on save
