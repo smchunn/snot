@@ -32,13 +32,25 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
 
 ```lua
 {
-  dir = "/path/to/snot/nvim",
-  config = function()
-    require("snot").setup({
-      vault_path = "/path/to/your/notes",
-      snot_bin = "snot", -- or full path to binary
-    })
-  end,
+  dir = "~/dev/snot/nvim",  -- path to where you cloned the repo
+  name = "snot",
+  opts = {
+    vault_path = "~/notes",  -- supports ~ home expansion
+    snot_bin = "snot",       -- or full path like "/usr/local/bin/snot"
+    enable_completion = true, -- optional, default: true
+  },
+  -- Optional: define keymaps
+  keys = {
+    { "<leader>nn", "<cmd>NoteNew<cr>", desc = "New note" },
+    { "<leader>nf", "<cmd>NoteFind<cr>", desc = "Find note" },
+    { "<leader>ns", "<cmd>NoteSearch<cr>", desc = "Search notes" },
+    { "<leader>nb", "<cmd>NoteBacklinks<cr>", desc = "Show backlinks" },
+    { "<leader>ni", "<cmd>NoteIndex<cr>", desc = "Index vault" },
+    { "<leader>nl", "<cmd>NoteLink<cr>", desc = "Insert link" },
+  },
+  -- Optional: lazy load on commands or filetypes
+  cmd = { "NoteNew", "NoteFind", "NoteSearch", "NoteBacklinks", "NoteIndex", "NoteInit", "NoteLink" },
+  ft = "markdown",
 }
 ```
 
@@ -46,6 +58,7 @@ Or manually add to your `runtimepath`:
 
 ```vim
 set runtimepath+=~/path/to/snot/nvim
+lua require("snot").setup({ vault_path = "~/notes" })
 ```
 
 ## Quick Start
