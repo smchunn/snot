@@ -14,6 +14,11 @@ A Rust-based note management system with Neovim integration, designed as a fast 
 - **Backlinks Support**: Track connections between notes
 - **Markdown Parsing**: Extract tags, wiki-links, and frontmatter
 
+## Documentation
+
+- **[Query Syntax Guide](docs/query-syntax.md)** - Complete reference for search queries
+- **[Documentation Index](docs/)** - All documentation and guides
+
 ## Installation
 
 ### Rust Backend
@@ -179,6 +184,8 @@ The query language supports:
 - `OR` - Combine queries (either can match)
 - `NOT` - Negate query
 - Parentheses for grouping: `(tag:work OR tag:personal) AND NOT tag:archived`
+
+**See [Query Syntax Guide](docs/query-syntax.md) for complete documentation with examples.**
 
 ### Note Format
 
