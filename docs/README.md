@@ -67,19 +67,22 @@ snot watch <vault-path>
 
 ```bash
 # Basic queries
-snot query ~/notes "tag:work"
-snot query ~/notes "contains:meeting"
-snot query ~/notes "linked-to:project-plan"
-snot query ~/notes "date:2025-10-01..2025-10-31"
+snot query ~/notes "tags CONTAINS 'work'"
+snot query ~/notes "content LIKE '%meeting%'"
+snot query ~/notes "links_to = 'project-plan'"
+snot query ~/notes "modified_date BETWEEN '2025-10-01' AND '2025-10-31'"
 
 # Boolean logic
-snot query ~/notes "tag:work AND contains:deadline"
-snot query ~/notes "tag:meeting OR tag:standup"
-snot query ~/notes "tag:work AND NOT tag:done"
+snot query ~/notes "tags CONTAINS 'work' AND content LIKE '%deadline%'"
+snot query ~/notes "tags CONTAINS 'meeting' OR tags CONTAINS 'standup'"
+snot query ~/notes "tags CONTAINS 'work' AND NOT tags CONTAINS 'done'"
 
 # Complex queries
-snot query ~/notes "(tag:work OR tag:personal) AND NOT tag:archived"
-snot query ~/notes "tag:urgent AND (tag:bug OR tag:issue)"
+snot query ~/notes "(tags CONTAINS 'work' OR tags CONTAINS 'personal') AND NOT tags CONTAINS 'archived'"
+snot query ~/notes "tags CONTAINS 'urgent' AND (tags CONTAINS 'bug' OR tags CONTAINS 'issue')"
+
+# Full SQL syntax
+snot query ~/notes "SELECT * FROM notes WHERE tags CONTAINS 'project'"
 ```
 
 See [Query Syntax Guide](query-syntax.md) for complete documentation.

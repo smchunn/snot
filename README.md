@@ -119,21 +119,24 @@ snot create /path/to/vault "My New Note"
 
 ```bash
 # Search by tag
-snot query /path/to/vault "tag:work"
+snot query /path/to/vault "tags CONTAINS 'work'"
 
 # Search by content
-snot query /path/to/vault "contains:meeting"
+snot query /path/to/vault "content LIKE '%meeting%'"
 
 # Find notes linking to another note
-snot query /path/to/vault "linked-to:project-plan"
+snot query /path/to/vault "links_to = 'project-plan'"
 
 # Date range queries
-snot query /path/to/vault "date:2025-01-01..2025-03-01"
+snot query /path/to/vault "modified_date BETWEEN '2025-01-01' AND '2025-03-01'"
 
-# Combine queries
-snot query /path/to/vault "tag:work AND contains:meeting"
-snot query /path/to/vault "tag:work OR tag:personal"
-snot query /path/to/vault "tag:work AND NOT contains:done"
+# Combine queries (SQL-style)
+snot query /path/to/vault "tags CONTAINS 'work' AND content LIKE '%meeting%'"
+snot query /path/to/vault "tags CONTAINS 'work' OR tags CONTAINS 'personal'"
+snot query /path/to/vault "tags CONTAINS 'work' AND NOT content LIKE '%done%'"
+
+# Full SQL syntax (optional)
+snot query /path/to/vault "SELECT * FROM notes WHERE tags CONTAINS 'urgent'"
 ```
 
 #### Get Backlinks
@@ -174,16 +177,26 @@ snot watch /path/to/vault
 
 ### Query Language
 
-The query language supports:
+SNOT uses **SQL-style queries** for searching notes:
 
-- `tag:tagname` - Find notes with tag
-- `contains:text` - Search note content
-- `linked-to:note-id` - Find notes linking to a specific note
-- `date:YYYY-MM-DD..YYYY-MM-DD` - Date range search
-- `AND` - Combine queries (both must match)
-- `OR` - Combine queries (either can match)
-- `NOT` - Negate query
-- Parentheses for grouping: `(tag:work OR tag:personal) AND NOT tag:archived`
+```sql
+-- Basic queries
+tags CONTAINS 'work'
+content LIKE '%meeting%'
+links_to = 'project-plan'
+modified_date BETWEEN '2025-01-01' AND '2025-01-31'
+
+-- Boolean logic
+tags CONTAINS 'work' AND content LIKE '%deadline%'
+tags CONTAINS 'meeting' OR tags CONTAINS 'standup'
+tags CONTAINS 'work' AND NOT tags CONTAINS 'archived'
+
+-- Grouping with parentheses
+(tags CONTAINS 'work' OR tags CONTAINS 'personal') AND NOT tags CONTAINS 'archived'
+
+-- Optional: Full SQL syntax
+SELECT * FROM notes WHERE tags CONTAINS 'urgent'
+```
 
 **See [Query Syntax Guide](docs/query-syntax.md) for complete documentation with examples.**
 

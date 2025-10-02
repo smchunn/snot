@@ -1,141 +1,170 @@
-# Query Syntax Guide
+# SQL Query Syntax Guide
 
-SNOT features a powerful query language for searching and filtering notes. This guide covers all available operators and how to combine them.
+SNOT uses SQL-style queries for searching and filtering notes. This guide covers all available operations and how to combine them.
 
 ## Table of Contents
 
-- [Basic Operators](#basic-operators)
+- [Basic SQL Syntax](#basic-sql-syntax)
+- [Query Operators](#query-operators)
 - [Boolean Logic](#boolean-logic)
-- [Grouping with Parentheses](#grouping-with-parentheses)
 - [Common Use Cases](#common-use-cases)
 - [Tips and Best Practices](#tips-and-best-practices)
 
-## Basic Operators
+## Basic SQL Syntax
 
-### `tag:tagname`
+### Full SQL Format
+
+```sql
+SELECT * FROM notes WHERE <condition>
+```
+
+### Shortened Formats
+
+For convenience, you can omit `SELECT * FROM notes`:
+
+```sql
+-- Full format
+SELECT * FROM notes WHERE tags CONTAINS 'work'
+
+-- With WHERE keyword
+WHERE tags CONTAINS 'work'
+
+-- Just the condition (simplest)
+tags CONTAINS 'work'
+```
+
+All three formats are equivalent and produce the same results.
+
+## Query Operators
+
+### `tags CONTAINS 'value'`
 
 Find all notes containing a specific tag.
 
 **Syntax:**
-```
-tag:tagname
+```sql
+tags CONTAINS 'tagname'
 ```
 
 **Examples:**
 ```bash
 # Find all notes tagged with "work"
-snot query ~/notes "tag:work"
+snot query ~/notes "tags CONTAINS 'work'"
 
 # Find notes tagged "meeting"
-snot query ~/notes "tag:meeting"
+snot query ~/notes "WHERE tags CONTAINS 'meeting'"
+
+# Full SQL
+snot query ~/notes "SELECT * FROM notes WHERE tags CONTAINS 'project'"
 
 # From Neovim
-:NoteSearch tag:project
+:NoteSearch tags CONTAINS 'work'
 ```
 
 **Note:** Tags can be defined in frontmatter or inline with `#tagname`.
 
 ---
 
-### `contains:text`
+### `content LIKE '%text%'`
 
 Search for notes containing specific text in their content or title.
 
 **Syntax:**
-```
-contains:text
-contains:"multi word phrase"
+```sql
+content LIKE '%search text%'
 ```
 
 **Examples:**
 ```bash
 # Find notes containing "database"
-snot query ~/notes "contains:database"
+snot query ~/notes "content LIKE '%database%'"
 
-# Search for a phrase (use quotes)
-snot query ~/notes 'contains:"customer feedback"'
+# Search for a phrase
+snot query ~/notes "content LIKE '%customer feedback%'"
 
 # From Neovim
-:NoteSearch contains:todo
+:NoteSearch content LIKE '%todo%'
 ```
 
-**Note:** Searches are case-insensitive.
+**Note:** Use `%` as wildcards (optional - they're added automatically if omitted).
 
 ---
 
-### `linked-to:note-id`
+### `links_to = 'note-id'`
 
 Find all notes that link to a specific note (backlinks).
 
 **Syntax:**
-```
-linked-to:note-id
+```sql
+links_to = 'note-id'
+-- or
+links_to LIKE '%pattern%'
 ```
 
 **Examples:**
 ```bash
 # Find all notes linking to "project-plan"
-snot query ~/notes "linked-to:project-plan"
+snot query ~/notes "links_to = 'project-plan'"
 
-# Find notes linking to a specific dated note
-snot query ~/notes "linked-to:weekly-review-2025-10-02"
+# Find notes linking to notes matching a pattern
+snot query ~/notes "links_to LIKE '%weekly-review%'"
 
 # From Neovim
-:NoteSearch linked-to:main-index
+:NoteSearch links_to = 'main-index'
 ```
 
 **Note:** Use the note's ID (kebab-case filename without extension).
 
 ---
 
-### `date:YYYY-MM-DD..YYYY-MM-DD`
+### `modified_date BETWEEN 'start' AND 'end'`
 
 Find notes modified within a date range.
 
 **Syntax:**
-```
-date:start-date..end-date
+```sql
+modified_date BETWEEN 'YYYY-MM-DD' AND 'YYYY-MM-DD'
 ```
 
 **Examples:**
 ```bash
 # Notes from January 2025
-snot query ~/notes "date:2025-01-01..2025-01-31"
+snot query ~/notes "modified_date BETWEEN '2025-01-01' AND '2025-01-31'"
 
 # Notes from the last quarter
-snot query ~/notes "date:2025-01-01..2025-03-31"
+snot query ~/notes "modified_date BETWEEN '2025-01-01' AND '2025-03-31'"
 
 # From Neovim
-:NoteSearch date:2025-10-01..2025-10-31
+:NoteSearch modified_date BETWEEN '2025-10-01' AND '2025-10-31'
 ```
 
-**Note:** Dates must be in `YYYY-MM-DD` format. The range is inclusive.
+**Note:** Dates must be in `YYYY-MM-DD` format. Both dates are inclusive.
 
 ---
 
 ## Boolean Logic
 
-Combine queries using boolean operators for more powerful searches.
+Combine conditions using SQL boolean operators.
 
 ### `AND`
 
 Both conditions must be true.
 
 **Syntax:**
-```
-query1 AND query2
+```sql
+condition1 AND condition2
 ```
 
 **Examples:**
 ```bash
 # Notes tagged "work" AND containing "meeting"
-snot query ~/notes "tag:work AND contains:meeting"
+snot query ~/notes "tags CONTAINS 'work' AND content LIKE '%meeting%'"
 
 # Work notes from October
-snot query ~/notes "tag:work AND date:2025-10-01..2025-10-31"
+snot query ~/notes "tags CONTAINS 'work' AND modified_date BETWEEN '2025-10-01' AND '2025-10-31'"
 
 # Multiple conditions
-snot query ~/notes "tag:project AND contains:deadline AND tag:urgent"
+snot query ~/notes "tags CONTAINS 'project' AND content LIKE '%deadline%' AND tags CONTAINS 'urgent'"
 ```
 
 ---
@@ -145,20 +174,20 @@ snot query ~/notes "tag:project AND contains:deadline AND tag:urgent"
 Either condition can be true.
 
 **Syntax:**
-```
-query1 OR query2
+```sql
+condition1 OR condition2
 ```
 
 **Examples:**
 ```bash
 # Notes tagged "work" OR "project"
-snot query ~/notes "tag:work OR tag:project"
+snot query ~/notes "tags CONTAINS 'work' OR tags CONTAINS 'project'"
 
 # Notes containing "bug" OR "issue"
-snot query ~/notes "contains:bug OR contains:issue"
+snot query ~/notes "content LIKE '%bug%' OR content LIKE '%issue%'"
 
 # Multiple tags
-snot query ~/notes "tag:meeting OR tag:standup OR tag:review"
+snot query ~/notes "tags CONTAINS 'meeting' OR tags CONTAINS 'standup' OR tags CONTAINS 'review'"
 ```
 
 ---
@@ -168,46 +197,43 @@ snot query ~/notes "tag:meeting OR tag:standup OR tag:review"
 Exclude notes matching a condition.
 
 **Syntax:**
-```
-NOT query
+```sql
+NOT condition
 ```
 
 **Examples:**
 ```bash
 # All work notes except meetings
-snot query ~/notes "tag:work AND NOT tag:meeting"
+snot query ~/notes "tags CONTAINS 'work' AND NOT tags CONTAINS 'meeting'"
 
 # Notes without the "archived" tag
-snot query ~/notes "NOT tag:archived"
+snot query ~/notes "NOT tags CONTAINS 'archived'"
 
 # Exclude completed items
-snot query ~/notes "tag:todo AND NOT contains:completed"
+snot query ~/notes "tags CONTAINS 'todo' AND NOT content LIKE '%completed%'"
 ```
 
 ---
 
-## Grouping with Parentheses
+### Parentheses for Grouping
 
-Use parentheses to control the order of operations and create complex queries.
+Use parentheses to control the order of operations.
 
 **Syntax:**
-```
-(query1 OR query2) AND query3
+```sql
+(condition1 OR condition2) AND condition3
 ```
 
 **Examples:**
 ```bash
 # Work or personal notes, but not archived
-snot query ~/notes "(tag:work OR tag:personal) AND NOT tag:archived"
+snot query ~/notes "(tags CONTAINS 'work' OR tags CONTAINS 'personal') AND NOT tags CONTAINS 'archived'"
 
 # Urgent items from specific projects
-snot query ~/notes "tag:urgent AND (tag:project-a OR tag:project-b)"
+snot query ~/notes "tags CONTAINS 'urgent' AND (tags CONTAINS 'project-a' OR tags CONTAINS 'project-b')"
 
-# Complex date and tag combinations
-snot query ~/notes "(tag:meeting OR tag:standup) AND date:2025-10-01..2025-10-31 AND NOT tag:cancelled"
-
-# Multiple search terms
-snot query ~/notes "tag:research AND (contains:ai OR contains:ml OR contains:llm)"
+# Complex query
+snot query ~/notes "(tags CONTAINS 'meeting' OR tags CONTAINS 'standup') AND modified_date BETWEEN '2025-10-01' AND '2025-10-31' AND NOT tags CONTAINS 'cancelled'"
 ```
 
 ---
@@ -216,198 +242,205 @@ snot query ~/notes "tag:research AND (contains:ai OR contains:ml OR contains:llm
 
 ### 1. **Finding Active Work Items**
 
-```bash
-# Work todos that aren't done
-snot query ~/notes "tag:work AND tag:todo AND NOT contains:done"
+```sql
+-- Work todos that aren't done
+tags CONTAINS 'work' AND tags CONTAINS 'todo' AND NOT content LIKE '%done%'
 
-# This week's tasks
-snot query ~/notes "tag:todo AND date:2025-10-01..2025-10-07"
+-- This week's tasks
+tags CONTAINS 'todo' AND modified_date BETWEEN '2025-10-01' AND '2025-10-07'
 ```
 
 ### 2. **Project Research**
 
-```bash
-# All research notes for a project
-snot query ~/notes "tag:research AND tag:project-alpha"
+```sql
+-- All research notes for a project
+tags CONTAINS 'research' AND tags CONTAINS 'project-alpha'
 
-# Research notes with specific keywords
-snot query ~/notes "tag:research AND (contains:algorithm OR contains:optimization)"
+-- Research notes with specific keywords
+tags CONTAINS 'research' AND (content LIKE '%algorithm%' OR content LIKE '%optimization%')
 ```
 
 ### 3. **Meeting Notes**
 
-```bash
-# All meeting notes from October
-snot query ~/notes "tag:meeting AND date:2025-10-01..2025-10-31"
+```sql
+-- All meeting notes from October
+tags CONTAINS 'meeting' AND modified_date BETWEEN '2025-10-01' AND '2025-10-31'
 
-# Client meetings only
-snot query ~/notes "tag:meeting AND tag:client"
+-- Client meetings only
+tags CONTAINS 'meeting' AND tags CONTAINS 'client'
 
-# Meetings that reference a specific project
-snot query ~/notes "tag:meeting AND linked-to:project-plan"
+-- Meetings that reference a specific project
+tags CONTAINS 'meeting' AND links_to = 'project-plan'
 ```
 
 ### 4. **Content Organization**
 
-```bash
-# Find orphan notes (no backlinks, no tags)
-snot query ~/notes "NOT tag:* AND NOT linked-to:*"
+```sql
+-- Find notes with specific tag
+tags CONTAINS 'important'
 
-# Popular notes (linked from many places)
-snot query ~/notes "linked-to:main-index"
+-- Popular notes (linked from other places)
+links_to = 'main-index'
 
-# Recent untagged notes
-snot query ~/notes "NOT tag:* AND date:2025-10-01..2025-10-31"
+-- Recent untagged notes
+NOT tags CONTAINS '%' AND modified_date BETWEEN '2025-10-01' AND '2025-10-31'
 ```
 
 ### 5. **Review and Cleanup**
 
-```bash
-# Old notes to review
-snot query ~/notes "date:2020-01-01..2023-12-31 AND NOT tag:archived"
+```sql
+-- Old notes to review
+modified_date BETWEEN '2020-01-01' AND '2023-12-31' AND NOT tags CONTAINS 'archived'
 
-# Notes to archive
-snot query ~/notes "tag:completed AND NOT tag:archived"
+-- Notes to archive
+tags CONTAINS 'completed' AND NOT tags CONTAINS 'archived'
 
-# Drafts to finish
-snot query ~/notes "tag:draft AND NOT contains:published"
+-- Drafts to finish
+tags CONTAINS 'draft' AND NOT content LIKE '%published%'
 ```
 
 ---
 
 ## Tips and Best Practices
 
-### 1. **Quote Multi-Word Values**
+### 1. **Always Quote String Values**
 
-Always use quotes for phrases or multi-word search terms:
+Use single or double quotes for all string values:
 
-```bash
-# Correct
-snot query ~/notes 'contains:"project update"'
+```sql
+-- Correct
+tags CONTAINS 'work'
+content LIKE '%project update%'
 
-# Incorrect (will fail)
-snot query ~/notes "contains:project update"
+-- Incorrect (will fail)
+tags CONTAINS work
 ```
 
-### 2. **Use Specific Tags**
+### 2. **Wildcards in LIKE**
+
+The `%` wildcards are optional but recommended for clarity:
+
+```sql
+-- Both work the same
+content LIKE '%meeting%'
+content LIKE 'meeting'  -- automatically adds % wildcards
+```
+
+### 3. **Use Specific Tags**
 
 Create a tagging system for efficient queries:
 
-```bash
-# Status tags
-tag:todo, tag:in-progress, tag:done, tag:blocked
+```sql
+-- Status tags
+tags CONTAINS 'todo', 'in-progress', 'done', 'blocked'
 
-# Category tags
-tag:work, tag:personal, tag:project
+-- Category tags
+tags CONTAINS 'work', 'personal', 'project'
 
-# Priority tags
-tag:urgent, tag:important, tag:low-priority
-```
-
-### 3. **Combine Date Ranges with Other Filters**
-
-Date ranges are powerful when combined:
-
-```bash
-# Active work from this month
-snot query ~/notes "tag:work AND NOT tag:done AND date:2025-10-01..2025-10-31"
+-- Priority tags
+tags CONTAINS 'urgent', 'important', 'low-priority'
 ```
 
 ### 4. **Build Complex Queries Incrementally**
 
 Start simple and add filters:
 
-```bash
-# Step 1: Basic filter
-tag:project
+```sql
+-- Step 1: Basic filter
+tags CONTAINS 'project'
 
-# Step 2: Add time range
-tag:project AND date:2025-10-01..2025-10-31
+-- Step 2: Add time range
+tags CONTAINS 'project' AND modified_date BETWEEN '2025-10-01' AND '2025-10-31'
 
-# Step 3: Exclude completed
-tag:project AND date:2025-10-01..2025-10-31 AND NOT tag:done
+-- Step 3: Exclude completed
+tags CONTAINS 'project' AND modified_date BETWEEN '2025-10-01' AND '2025-10-31' AND NOT tags CONTAINS 'done'
 ```
 
-### 5. **Use Aliases in Neovim**
-
-Create command aliases for frequently used queries:
-
-```lua
--- In your Neovim config
-vim.api.nvim_create_user_command("WorkTodos", function()
-  require("snot.commands").search_notes("tag:work AND tag:todo AND NOT contains:done")
-end, {})
-
-vim.api.nvim_create_user_command("ThisWeekMeetings", function()
-  require("snot.commands").search_notes("tag:meeting AND date:2025-10-01..2025-10-07")
-end, {})
-```
-
-### 6. **Understand Operator Precedence**
+### 5. **Operator Precedence**
 
 When mixing AND/OR without parentheses:
 - `NOT` has highest precedence
 - `AND` is evaluated before `OR`
 
-```bash
-# This query: (tag:a AND tag:b) OR tag:c
-tag:a AND tag:b OR tag:c
+```sql
+-- This query: (A AND B) OR C
+tags CONTAINS 'a' AND tags CONTAINS 'b' OR tags CONTAINS 'c'
 
-# Use parentheses for clarity
-(tag:a AND tag:b) OR tag:c
+-- Use parentheses for clarity
+(tags CONTAINS 'a' AND tags CONTAINS 'b') OR tags CONTAINS 'c'
 ```
 
 ---
 
-## Query Language Grammar
+## SQL Reference
 
-For reference, here's the formal grammar:
+### Supported Columns
 
-```
-query     := or_expr
-or_expr   := and_expr ( "OR" and_expr )*
-and_expr  := primary ( "AND" primary )*
-primary   := "NOT" primary
-           | "(" or_expr ")"
-           | operator ":" value
+| Column | Type | Description | Operators |
+|--------|------|-------------|-----------|
+| `tags` | String | Note tags | `CONTAINS` |
+| `content` | String | Note content/title | `LIKE` |
+| `links_to` | String | Note ID this links to | `=`, `LIKE` |
+| `modified_date` | Date | Last modified date | `BETWEEN ... AND ...` |
 
-operator  := "tag" | "contains" | "linked-to" | "date"
-value     := quoted_string | unquoted_string
-```
+### Supported Operators
+
+| Operator | Example | Description |
+|----------|---------|-------------|
+| `CONTAINS` | `tags CONTAINS 'work'` | Check if tag exists |
+| `LIKE` | `content LIKE '%text%'` | Pattern match content |
+| `=` | `links_to = 'note-id'` | Exact match |
+| `BETWEEN ... AND ...` | `modified_date BETWEEN '2025-01-01' AND '2025-01-31'` | Date range |
+| `AND` | `condition1 AND condition2` | Both must be true |
+| `OR` | `condition1 OR condition2` | Either must be true |
+| `NOT` | `NOT condition` | Negate condition |
 
 ---
 
 ## Error Messages
 
-Common errors and their meanings:
+Common errors and their solutions:
 
 | Error | Cause | Fix |
 |-------|-------|-----|
-| `Expected ':' after key` | Missing colon | Use `tag:work` not `tag work` |
-| `Expected identifier` | Invalid operator | Use valid operators: tag, contains, linked-to, date |
+| `Expected keyword 'CONTAINS'` | Wrong operator for tags | Use `tags CONTAINS 'value'` |
+| `Expected keyword 'LIKE'` | Wrong operator for content | Use `content LIKE '%value%'` |
+| `Expected quoted string` | Missing quotes | Quote all string values: `'value'` |
 | `Invalid date format` | Wrong date format | Use YYYY-MM-DD format |
-| `Date range must be in format` | Wrong range syntax | Use `start..end` format |
-| `Unterminated quoted string` | Missing closing quote | Add closing quote to string |
-| `Expected closing parenthesis` | Unmatched parentheses | Check parentheses matching |
+| `Expected keyword 'AND' after BETWEEN` | Missing AND in date range | Use `BETWEEN 'start' AND 'end'` |
+| `Unknown column` | Invalid column name | Use: tags, content, links_to, modified_date |
 
 ---
 
+## Examples from CLI
+
+```bash
+# Basic queries
+snot query ~/notes "tags CONTAINS 'work'"
+snot query ~/notes "content LIKE '%meeting%'"
+snot query ~/notes "links_to = 'project-plan'"
+snot query ~/notes "modified_date BETWEEN '2025-10-01' AND '2025-10-31'"
+
+# Boolean logic
+snot query ~/notes "tags CONTAINS 'work' AND content LIKE '%deadline%'"
+snot query ~/notes "tags CONTAINS 'meeting' OR tags CONTAINS 'standup'"
+snot query ~/notes "tags CONTAINS 'work' AND NOT tags CONTAINS 'done'"
+
+# Complex queries
+snot query ~/notes "(tags CONTAINS 'work' OR tags CONTAINS 'personal') AND NOT tags CONTAINS 'archived'"
+snot query ~/notes "SELECT * FROM notes WHERE tags CONTAINS 'urgent' AND (tags CONTAINS 'bug' OR tags CONTAINS 'issue')"
+```
+
 ## Examples from Neovim
 
-Using the query language in Neovim commands:
-
 ```vim
-" Search for work todos
-:NoteSearch tag:work AND tag:todo
+" Basic searches
+:NoteSearch tags CONTAINS 'work'
+:NoteSearch content LIKE '%important%'
 
-" Find recent meeting notes
-:NoteSearch tag:meeting AND date:2025-10-01..2025-10-31
-
-" Search with multi-word phrase
-:NoteSearch contains:"important deadline"
-
-" Complex query
-:NoteSearch (tag:work OR tag:personal) AND NOT tag:archived AND date:2025-10-01..2025-10-31
+" Complex queries
+:NoteSearch tags CONTAINS 'work' AND tags CONTAINS 'todo'
+:NoteSearch (tags CONTAINS 'work' OR tags CONTAINS 'personal') AND modified_date BETWEEN '2025-10-01' AND '2025-10-31'
 ```
 
 ---
