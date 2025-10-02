@@ -60,67 +60,74 @@ cargo run -- watch ./test_vault
 
 ### High-Level Design
 
-!! update high level design to accurately reflect
 The project follows a modular architecture with clear separation of concerns:
 
-1. **Database Layer (`src/db/`)**: Custom in-memory database with multiple indexes
+1. **Database Layer (`src/db/`)**: Custom in-memory database with metadata-only storage
    - `storage.rs`: Core data structures (Note, Database) with CRUD operations
-   - `query.rs`: Query language parser and executor using recursive descent parsing
-   - Uses HashMap for O(1) lookups, BTree for date ranges, and maintains bidirectional link tracking
+   - `query.rs`: SQL-style query parser and executor using recursive descent parsing
+   - Stores only frontmatter (title, tags, aliases, links) - NOT full content
+   - Uses HashMap for O(1) lookups, BTree for date ranges, maintains bidirectional link tracking
+   - Content searches delegated to ripgrep/grep for better performance
 
-2. **Parser Layer (`src/parser/`)**: Markdown parsing and note extraction
-   - `links.rs`: Extracts wiki-links `[[note]]`, tags `#tag`, frontmatter, and titles
-   - Handles both inline tags and YAML frontmatter tags
+2. **Parser Layer (`src/parser/`)**: Markdown frontmatter extraction
+   - `links.rs`: Extracts frontmatter, wiki-links `[[note]]`, tags `#tag`, titles, and aliases
+   - Handles both inline tags and YAML frontmatter tags/aliases
    - Normalizes note IDs to kebab-case format
+   - Does NOT store full file content - only metadata
 
 3. **Watcher Layer (`src/watcher/`)**: File system monitoring with caching
    - `checksum.rs`: SHA-256 based change detection for incremental updates
    - Uses `notify` crate for cross-platform file watching
    - Only reindexes files that have actually changed
 
-4. **Picker Layer (`src/picker/`)**: Generic file picker interface
-   - `mod.rs`: Trait-based design allowing multiple picker backends
-   - `fzf.rs`: FZF implementation with preview support
-
-5. **Commands Layer (`src/commands/`)**: CLI command implementations
-   - Each command is in its own module (init, index, query, create, backlinks, watch)
+4. **Commands Layer (`src/commands/`)**: CLI command implementations
+   - Each command is in its own module (init, index, query, create, update, backlinks, watch)
+   - `update.rs`: Updates single file metadata (used by Neovim on save)
    - All commands output JSON for easy consumption by the Neovim plugin
 
-6. **Neovim Plugin (`nvim/lua/snot/`)**: Editor integration
-   - `init.lua`: Plugin setup and configuration
+5. **Neovim Plugin (`nvim/lua/snot/`)**: Editor integration
+   - `init.lua`: Plugin setup, configuration, and auto-update on save (BufWritePost)
    - `backend.lua`: Communication with Rust CLI via jobstart
    - `commands.lua`: Neovim command implementations
+   - `picker.lua`: Multi-picker support (fzf-lua, telescope, vim.ui.select)
    - `ui.lua`: UI components for displaying results
    - `completion.lua`: Auto-completion for wiki-links and tags
 
 ### Key Design Decisions
-
-!! update design decisions to reflect current state of codebase
 
 1. **Custom Database vs SQLite**: Built from scratch for learning and performance
    - Allows fine-grained control over indexing strategy
    - No SQL overhead for simple operations
    - Binary serialization with bincode for fast persistence
 
-2. **Query Language**: Custom DSL instead of regex/text search
+2. **Frontmatter-Only Storage**: Store metadata, not content
+   - Only title, tags, aliases, links, and checksums stored in database
+   - Dramatically reduces memory usage for large vaults
+   - Content searches use ripgrep/grep instead of in-memory scan
+   - Falls back to title/alias search if external tools unavailable
+
+3. **Query Language**: SQL-style syntax instead of custom DSL
    - Supports complex boolean logic (AND, OR, NOT)
-   - Type-safe queries (tag:, contains:, linked-to:, date:)
+   - SQL-like operators: `tags CONTAINS 'work'`, `content LIKE '%text%'`
+   - Optional full SQL syntax: `SELECT * FROM notes WHERE ...`
    - Recursive descent parser for clean implementation
 
-3. **Incremental Indexing**: SHA-256 checksums prevent redundant work
+4. **Incremental Indexing**: SHA-256 checksums prevent redundant work
    - Critical for large vaults (1000+ notes)
    - Checksum stored with each note in database
    - File watcher triggers selective reindexing
+   - Auto-update on save via Neovim BufWritePost autocmd
 
-4. **Bidirectional Links**: Automatically maintain backlinks
+5. **Bidirectional Links**: Automatically maintain backlinks
    - When note A links to note B, note B's backlinks include A
    - Updated atomically during insert/update/delete operations
    - No separate backlink indexing required
 
-5. **Neovim Integration**: CLI-first design with editor as consumer
+6. **Neovim Integration**: CLI-first design with editor as consumer
    - All functionality available via CLI
    - Neovim plugin is thin wrapper using jobstart
    - JSON output for easy parsing
+   - Picker abstraction supports fzf-lua, telescope, or vim.ui.select
 
 ## Important Implementation Details
 
@@ -163,35 +170,99 @@ The file watcher uses `notify` which requires keeping the watcher alive:
 Queries are executed in-memory with set operations:
 
 - Tag queries: O(1) lookup in tag_index
-- Content search: O(n) scan with early termination
+- Content search: Delegated to ripgrep/grep (fast external tools with inverted indexes)
+  - Falls back to title/alias search if external tools unavailable
 - Date ranges: O(log n) BTree range iteration
 - AND/OR: Set intersection/union operations
-- Results are references to avoid cloning large content strings
+- Results are references to avoid cloning
 
 ## Neovim Plugin Notes
 
-!! include a list of all neovim functions
+### Neovim Functions Reference
 
-### FZF Integration
+**init.lua** - Plugin setup
+- `M.setup(opts)` - Initialize plugin with configuration options
+- `M.get_config()` - Get current plugin configuration
 
-The plugin uses `vim.fn.fzf#run` for file picking:
+**backend.lua** - Rust CLI communication
+- `M.run_command(args, callback)` - Execute snot CLI command asynchronously
+- `M.init_vault(vault_path, callback)` - Initialize a new vault
+- `M.index_vault(force, callback)` - Index vault (force=true to reindex all)
+- `M.create_note(name, callback)` - Create new note with name
+- `M.query_notes(query, callback)` - Execute SQL query
+- `M.get_backlinks(file_path, callback)` - Get backlinks for a file
+- `M.list_notes(query, callback)` - List all notes (optionally filtered)
+- `M.update_note(file_path, callback)` - Update single file metadata
 
-- Requires FZF to be installed and in PATH
-- Uses preview window showing file content with `cat`
-- Returns selected file path which is then opened with `:edit`
+**commands.lua** - User command implementations
+- `M.setup(config)` - Register all Neovim user commands
+- `M.create_note(name)` - `:NoteNew` implementation
+- `M.find_note(query)` - `:NoteFind` implementation
+- `M.search_notes(query)` - `:NoteSearch` implementation
+- `M.show_backlinks()` - `:NoteBacklinks` implementation
+- `M.index_vault(force)` - `:NoteIndex` implementation
+- `M.init_vault(vault_path)` - `:NoteInit` implementation
+- `M.insert_link()` - `:NoteLink` implementation
+
+**picker.lua** - File picker abstraction
+- `M.pick(files, opts)` - Show picker with files (auto-detects fzf-lua/telescope/select)
+
+**ui.lua** - UI components
+- `M.show_results(results, title)` - Display query results in floating window
+
+**completion.lua** - Auto-completion
+- `M.setup()` - Initialize omnifunc completion
+- `M.omnifunc(findstart, base)` - Vim's omnifunc implementation
+- `M.setup_cmp()` - Initialize nvim-cmp integration (optional)
+
+### Picker Integration
+
+The plugin supports multiple pickers with auto-detection:
+
+1. **fzf-lua** (preferred): Fast, native Lua implementation
+   - Preview window with file content
+   - Fuzzy matching with highlighting
+
+2. **telescope.nvim** (alternative): If installed
+   - Full telescope features and customization
+
+3. **vim.ui.select** (fallback): Built-in Neovim picker
+   - Always available, no dependencies
+
+Configure with `opts.picker = "auto"` (default), `"fzf-lua"`, `"telescope"`, or `"select"`
 
 ### Completion System
 
-!! support blink.cmp as well
-Two completion modes:
+Three completion modes supported:
 
 1. **Omnifunc** (built-in): Works everywhere, activated with `<C-X><C-O>`
+   - No dependencies required
+   - Completes wiki-links and tags
+
 2. **nvim-cmp** (optional): Better UX if user has nvim-cmp installed
+   - Automatic popup on typing
+   - Rich UI with icons and documentation
+
+3. **blink.cmp** (optional): High-performance completion framework
+   - Similar to nvim-cmp but faster
+   - Setup via blink.cmp source registration
 
 Completion triggers:
 
 - `[[` triggers note name completion
 - `#` triggers tag completion
+
+To integrate with blink.cmp, add snot as a source in your blink.cmp config:
+```lua
+sources = {
+  providers = {
+    snot = {
+      module = 'snot.completion',
+      name = 'snot',
+    },
+  },
+}
+```
 
 ### Async Communication
 
