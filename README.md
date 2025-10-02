@@ -33,39 +33,33 @@ cargo install --path .
 
 ### Neovim Plugin
 
+The Neovim plugin is maintained in a separate repository: **[snot.nvim](https://github.com/yourusername/snot.nvim)**
+
 Using [lazy.nvim](https://github.com/folke/lazy.nvim):
 
 ```lua
 {
-  dir = "~/dev/snot/nvim",  -- path to where you cloned the repo
-  name = "snot",
+  'yourusername/snot.nvim',
   opts = {
-    vault_path = "~/notes",       -- supports ~ home expansion
-    snot_bin = "snot",            -- or full path like "/usr/local/bin/snot"
+    vault_path = '~/notes',       -- supports ~ home expansion
+    snot_bin = 'snot',            -- or full path like "/usr/local/bin/snot"
+    picker = 'auto',              -- "auto", "fzf-lua", "telescope", or "select"
     enable_completion = true,     -- optional, default: true
-    picker = "auto",              -- "auto", "fzf-lua", "telescope", or "select" (default: "auto")
   },
-  -- Optional: define keymaps
   keys = {
-    { "<leader>nn", "<cmd>NoteNew<cr>", desc = "New note" },
-    { "<leader>nf", "<cmd>NoteFind<cr>", desc = "Find note" },
-    { "<leader>ns", "<cmd>NoteSearch<cr>", desc = "Search notes" },
-    { "<leader>nb", "<cmd>NoteBacklinks<cr>", desc = "Show backlinks" },
-    { "<leader>ni", "<cmd>NoteIndex<cr>", desc = "Index vault" },
-    { "<leader>nl", "<cmd>NoteLink<cr>", desc = "Insert link" },
+    { '<leader>nn', '<cmd>NoteNew<cr>', desc = 'New note' },
+    { '<leader>nf', '<cmd>NoteFind<cr>', desc = 'Find note' },
+    { '<leader>ns', '<cmd>NoteSearch<cr>', desc = 'Search notes' },
+    { '<leader>nb', '<cmd>NoteBacklinks<cr>', desc = 'Show backlinks' },
+    { '<leader>ni', '<cmd>NoteIndex<cr>', desc = 'Index vault' },
+    { '<leader>nl', '<cmd>NoteLink<cr>', desc = 'Insert link' },
   },
-  -- Optional: lazy load on commands or filetypes
-  cmd = { "NoteNew", "NoteFind", "NoteSearch", "NoteBacklinks", "NoteIndex", "NoteInit", "NoteLink" },
-  ft = "markdown",
+  cmd = { 'NoteNew', 'NoteFind', 'NoteSearch', 'NoteBacklinks', 'NoteIndex', 'NoteInit', 'NoteLink' },
+  ft = 'markdown',
 }
 ```
 
-Or manually add to your `runtimepath`:
-
-```vim
-set runtimepath+=~/path/to/snot/nvim
-lua require("snot").setup({ vault_path = "~/notes" })
-```
+See the [snot.nvim documentation](https://github.com/yourusername/snot.nvim) for more details.
 
 ## Quick Start
 

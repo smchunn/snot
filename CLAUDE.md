@@ -85,13 +85,11 @@ The project follows a modular architecture with clear separation of concerns:
    - `update.rs`: Updates single file metadata (used by Neovim on save)
    - All commands output JSON for easy consumption by the Neovim plugin
 
-5. **Neovim Plugin (`nvim/lua/snot/`)**: Editor integration
-   - `init.lua`: Plugin setup, configuration, and auto-update on save (BufWritePost)
-   - `backend.lua`: Communication with Rust CLI via jobstart
-   - `commands.lua`: Neovim command implementations
-   - `picker.lua`: Multi-picker support (fzf-lua, telescope, vim.ui.select)
-   - `ui.lua`: UI components for displaying results
-   - `completion.lua`: Auto-completion for wiki-links and tags
+5. **Neovim Plugin** (separate repository: [snot.nvim](https://github.com/yourusername/snot.nvim))
+   - Maintained separately for better separation of concerns
+   - Communicates with Rust CLI via jobstart
+   - Provides commands, completion, and picker integration
+   - See snot.nvim repository for plugin-specific development
 
 ### Key Design Decisions
 
@@ -178,7 +176,11 @@ Queries are executed in-memory with set operations:
 
 ## Neovim Plugin Notes
 
-### Neovim Functions Reference
+**Note**: The Neovim plugin has been separated into its own repository: [snot.nvim](https://github.com/yourusername/snot.nvim)
+
+For plugin development, see the snot.nvim repository. The information below is kept for reference on how the plugin integrates with the CLI.
+
+### Neovim Functions Reference (in snot.nvim repo)
 
 **init.lua** - Plugin setup
 - `M.setup(opts)` - Initialize plugin with configuration options
