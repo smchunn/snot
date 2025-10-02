@@ -17,12 +17,14 @@ pub fn create_note(vault_path: &Path, name: &str) -> Result<()> {
         anyhow::bail!("Note already exists: {}", file_path.display());
     }
 
-    // Create note with basic template
+    // Create note with YAML frontmatter
     let title = name.trim();
+    let note_id = format!("{}-{}", normalized, date);
     let content = format!(
-        "# {}\n\nCreated: {}\n\n",
+        "---\nid: {}\naliases:\n  - {}\ntags: []\n---\n\n# {}\n\n",
+        note_id,
         title,
-        Local::now().format("%Y-%m-%d %H:%M:%S")
+        title
     );
 
     fs::write(&file_path, content)
@@ -30,9 +32,10 @@ pub fn create_note(vault_path: &Path, name: &str) -> Result<()> {
 
     // Output as JSON for Neovim to parse
     println!(
-        "{{\"path\": \"{}\", \"title\": \"{}\"}}",
+        "{{\"path\": \"{}\", \"title\": \"{}\", \"id\": \"{}\"}}",
         file_path.display(),
-        title
+        title,
+        note_id
     );
 
     Ok(())

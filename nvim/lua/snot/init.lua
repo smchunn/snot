@@ -3,6 +3,7 @@ local M = {}
 local config = {
   vault_path = vim.fn.getcwd(),
   snot_bin = "snot",
+  picker = "auto", -- "auto", "fzf-lua", "telescope", or "select"
 }
 
 local function expand_path(path)

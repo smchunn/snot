@@ -35,9 +35,10 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
   dir = "~/dev/snot/nvim",  -- path to where you cloned the repo
   name = "snot",
   opts = {
-    vault_path = "~/notes",  -- supports ~ home expansion
-    snot_bin = "snot",       -- or full path like "/usr/local/bin/snot"
-    enable_completion = true, -- optional, default: true
+    vault_path = "~/notes",       -- supports ~ home expansion
+    snot_bin = "snot",            -- or full path like "/usr/local/bin/snot"
+    enable_completion = true,     -- optional, default: true
+    picker = "auto",              -- "auto", "fzf-lua", "telescope", or "select" (default: "auto")
   },
   -- Optional: define keymaps
   keys = {
@@ -93,6 +94,13 @@ snot index /path/to/vault --force
 # CLI
 snot create /path/to/vault "My New Note"
 # Creates: my-new-note-2025-10-02.md
+# With YAML frontmatter:
+#   ---
+#   id: my-new-note-2025-10-02
+#   aliases:
+#     - My New Note
+#   tags: []
+#   ---
 
 # From Neovim
 :NoteNew My New Note
@@ -174,20 +182,41 @@ The query language supports:
 
 ### Note Format
 
-Notes support:
-
-1. **Wiki Links**: `[[note-name]]` or `[[note-name|display text]]`
-2. **Tags**: `#tag` or in frontmatter
-3. **Frontmatter**:
+Notes are created with YAML frontmatter:
 
 ```markdown
 ---
-tags: [work, meeting, project]
+id: note-name-2025-10-02
+aliases:
+  - Note Name
+tags: []
 ---
 
 # Note Title
 
 Content here...
+```
+
+Notes support:
+
+1. **Wiki Links**: `[[note-name]]` or `[[note-name|display text]]`
+2. **Tags**: `#tag` or in frontmatter
+3. **Frontmatter**: id, aliases, and tags
+
+### File Picker
+
+The Neovim plugin supports multiple pickers (auto-detected):
+
+- **fzf-lua** (recommended): Fast, Lua-native, with preview support
+- **Telescope**: If you have telescope.nvim installed
+- **vim.ui.select**: Fallback native picker
+
+Configure in your setup:
+
+```lua
+opts = {
+  picker = "auto",  -- or "fzf-lua", "telescope", "select"
+}
 ```
 
 ## Architecture
@@ -204,15 +233,15 @@ snot/
 │   │   └── links.rs      # Extract links, tags
 │   ├── watcher/          # File watching
 │   │   └── checksum.rs   # SHA-256 caching
-│   ├── picker/           # File picker interface
-│   │   └── fzf.rs        # FZF implementation
 │   └── commands/         # CLI commands
 └── nvim/
     └── lua/snot/
-        ├── init.lua      # Plugin entry point
-        ├── backend.lua   # Rust backend communication
-        ├── commands.lua  # Neovim commands
-        └── ui.lua        # UI components
+        ├── init.lua        # Plugin entry point
+        ├── backend.lua     # Rust backend communication
+        ├── commands.lua    # Neovim commands
+        ├── ui.lua          # UI components
+        ├── picker.lua      # File picker (FZF/Telescope/select)
+        └── completion.lua  # Auto-completion
 ```
 
 ### Database Design
@@ -278,7 +307,9 @@ cargo clippy
 ## Neovim Requirements
 
 - Neovim 0.7+
-- FZF (for file picking)
+- Optional: [fzf-lua](https://github.com/ibhagwan/fzf-lua) (recommended for file picking)
+- Optional: [telescope.nvim](https://github.com/nvim-telescope/telescope.nvim) (alternative picker)
+- Falls back to vim.ui.select if neither available
 
 ## License
 

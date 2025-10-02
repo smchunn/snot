@@ -1,7 +1,6 @@
 mod db;
 mod parser;
 mod watcher;
-mod picker;
 mod commands;
 
 use std::path::PathBuf;

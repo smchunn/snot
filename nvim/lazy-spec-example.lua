@@ -13,6 +13,9 @@ return {
 
     -- Enable auto-completion (default: true)
     enable_completion = true,
+
+    -- File picker: "auto" (detects fzf-lua/telescope), "fzf-lua", "telescope", or "select"
+    picker = "auto",
   },
   -- Optional: define keymaps
   keys = {

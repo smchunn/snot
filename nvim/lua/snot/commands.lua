@@ -1,6 +1,7 @@
 local M = {}
 local backend = require("snot.backend")
 local ui = require("snot.ui")
+local picker = require("snot.picker")
 
 function M.setup(config)
   -- NoteNew - Create a new note
@@ -95,19 +96,11 @@ function M.find_note(query)
       return
     end
 
-    -- Use fzf to pick a file
-    vim.fn["fzf#run"](vim.fn["fzf#wrap"]({
-      source = files,
-      sink = function(selected)
-        vim.cmd("edit " .. selected)
-      end,
-      options = {
-        "--preview",
-        "cat {}",
-        "--preview-window",
-        "right:60%:wrap",
-      },
-    }))
+    -- Use picker (FZF, Telescope, or vim.ui.select)
+    picker.pick(files, {
+      prompt = "Find Note> ",
+      preview_command = "cat {}",
+    })
   end)
 end
 
@@ -191,10 +184,11 @@ function M.insert_link()
       return
     end
 
-    -- Use fzf to pick a file
-    vim.fn["fzf#run"](vim.fn["fzf#wrap"]({
-      source = files,
-      sink = function(selected)
+    -- Use picker to select a file for linking
+    picker.pick(files, {
+      prompt = "Insert Link> ",
+      preview_command = "cat {}",
+      on_select = function(selected)
         -- Extract note name from path and create wiki link
         local note_name = vim.fn.fnamemodify(selected, ":t:r")
         local link = "[[" .. note_name .. "]]"
@@ -208,13 +202,7 @@ function M.insert_link()
         -- Move cursor to after the link
         vim.api.nvim_win_set_cursor(0, { row, col + #link })
       end,
-      options = {
-        "--preview",
-        "cat {}",
-        "--preview-window",
-        "right:60%:wrap",
-      },
-    }))
+    })
   end)
 end
 
