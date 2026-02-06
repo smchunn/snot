@@ -1,103 +1,57 @@
 use std::path::Path;
+use std::time::Duration;
+
 use anyhow::Result;
-use crate::watcher::{FileWatcher, FileEvent};
-use crate::db::Database;
-use crate::parser::MarkdownParser;
-use crate::db::Note;
-use std::fs;
+
+use crate::vault::Vault;
+use crate::watcher::{FileEvent, VaultWatcher};
 
 pub fn watch_vault(vault_path: &Path) -> Result<()> {
-    let db_path = vault_path.join(".snot/db.bin");
-    let mut db = Database::with_path(db_path)?;
+    let mut vault =
+        Vault::open(vault_path).map_err(|e| anyhow::anyhow!("Failed to open vault: {}", e))?;
 
-    let watcher = FileWatcher::new(vault_path.to_path_buf());
-    let rx = watcher.watch()?;
+    let watcher = VaultWatcher::new(&vault.path)
+        .map_err(|e| anyhow::anyhow!("Failed to start watcher: {}", e))?;
 
-    println!("Watching vault at {}", vault_path.display());
+    println!("Watching vault at {}", vault.path.display());
     println!("Press Ctrl+C to stop");
 
+    let debounce = Duration::from_millis(200);
+
     loop {
-        match rx.recv() {
-            Ok(event) => {
-                if let Err(e) = handle_file_event(&mut db, &event, vault_path) {
-                    eprintln!("Error handling file event: {}", e);
-                } else {
-                    println!("Processed: {:?}", event);
+        let events = watcher.poll(debounce);
+        if events.is_empty() {
+            continue;
+        }
+
+        let mut had_changes = false;
+
+        for event in &events {
+            match event {
+                FileEvent::Created(path) | FileEvent::Modified(path) => {
+                    match vault.ingest_file(path, true) {
+                        Ok(_) => {
+                            had_changes = true;
+                            println!("Updated: {}", path.display());
+                        }
+                        Err(e) => eprintln!("Error processing {}: {}", path.display(), e),
+                    }
                 }
+                FileEvent::Deleted(path) => match vault.delete_file(path) {
+                    Ok(_) => {
+                        had_changes = true;
+                        println!("Deleted: {}", path.display());
+                    }
+                    Err(e) => eprintln!("Error deleting {}: {}", path.display(), e),
+                },
             }
-            Err(e) => {
-                eprintln!("Watch error: {}", e);
-                break;
+        }
+
+        // Save once per batch
+        if had_changes {
+            if let Err(e) = vault.save() {
+                eprintln!("Error saving database: {}", e);
             }
         }
     }
-
-    Ok(())
-}
-
-fn handle_file_event(
-    db: &mut Database,
-    event: &FileEvent,
-    vault_path: &Path,
-) -> Result<()> {
-    match event {
-        FileEvent::Created(path) | FileEvent::Modified(path) => {
-            let content = fs::read_to_string(path)?;
-            let parsed = MarkdownParser::parse(&content)?;
-            let checksum = FileWatcher::calculate_checksum(path)?;
-
-            let note_id = generate_note_id(path, vault_path)?;
-
-            if let Some(_existing) = db.get(&note_id) {
-                // Update existing note
-                let mut note = Note::new(
-                    note_id.clone(),
-                    parsed.title,
-                    path.to_path_buf(),
-                    checksum,
-                );
-                note.aliases = parsed.aliases;
-                note.tags = parsed.tags;
-                note.links = parsed.links;
-
-                db.update(&note_id, note)?;
-            } else {
-                // Create new note
-                let mut note = Note::new(
-                    note_id,
-                    parsed.title,
-                    path.to_path_buf(),
-                    checksum,
-                );
-                note.aliases = parsed.aliases;
-                note.tags = parsed.tags;
-                note.links = parsed.links;
-
-                db.insert(note)?;
-            }
-
-            db.save()?;
-        }
-        FileEvent::Deleted(path) => {
-            let note_id = generate_note_id(path, vault_path)?;
-            db.delete(&note_id)?;
-            db.save()?;
-        }
-    }
-
-    Ok(())
-}
-
-fn generate_note_id(file_path: &Path, vault_path: &Path) -> Result<String> {
-    let relative_path = file_path.strip_prefix(vault_path)
-        .unwrap_or(file_path);
-
-    let id = relative_path
-        .with_extension("")
-        .to_string_lossy()
-        .to_string()
-        .replace('/', "-")
-        .replace('\\', "-");
-
-    Ok(MarkdownParser::normalize_note_id(&id))
 }

@@ -1,42 +1,38 @@
 use std::path::Path;
-use std::fs;
-use anyhow::{Result, Context};
+
+use anyhow::Result;
 use chrono::Local;
-use crate::parser::MarkdownParser;
+use serde_json::json;
+
+use crate::note;
 
 pub fn create_note(vault_path: &Path, name: &str) -> Result<()> {
-    // Transform name to kebab-case and append date
-    let normalized = MarkdownParser::normalize_note_id(name);
+    let normalized = note::normalize_note_id(name);
     let date = Local::now().format("%Y-%m-%d");
     let filename = format!("{}-{}.md", normalized, date);
-
     let file_path = vault_path.join(&filename);
 
-    // Check if file already exists
     if file_path.exists() {
         anyhow::bail!("Note already exists: {}", file_path.display());
     }
 
-    // Create note with YAML frontmatter
     let title = name.trim();
     let note_id = format!("{}-{}", normalized, date);
+
     let content = format!(
         "---\nid: {}\naliases:\n  - {}\ntags: []\n---\n\n# {}\n\n",
-        note_id,
-        title,
-        title
+        note_id, title, title
     );
 
-    fs::write(&file_path, content)
-        .context("Failed to write note file")?;
+    std::fs::write(&file_path, content)?;
 
-    // Output as JSON for Neovim to parse
-    println!(
-        "{{\"path\": \"{}\", \"title\": \"{}\", \"id\": \"{}\"}}",
-        file_path.display(),
-        title,
-        note_id
-    );
+    let output = json!({
+        "path": file_path,
+        "title": title,
+        "id": note_id,
+    });
+
+    println!("{}", serde_json::to_string(&output)?);
 
     Ok(())
 }

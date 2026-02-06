@@ -1,11 +1,16 @@
-mod db;
-mod parser;
-mod watcher;
 mod commands;
+mod db;
+mod error;
+mod note;
+mod parser;
+mod query;
+mod vault;
+mod watcher;
 
 use std::path::PathBuf;
-use clap::{Parser, Subcommand};
+
 use anyhow::Result;
+use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(name = "snot")]
@@ -34,7 +39,7 @@ enum Commands {
     Query {
         /// Path to the vault directory
         vault_path: PathBuf,
-        /// Query string (e.g., "tag:work AND contains:meeting")
+        /// Query string (shorthand or SQL-style)
         query: String,
     },
     /// Create a new note
@@ -71,6 +76,49 @@ enum Commands {
         #[arg(short, long)]
         query: Option<String>,
     },
+    /// List all tags
+    Tags {
+        /// Path to the vault directory
+        vault_path: PathBuf,
+    },
+    /// Graph operations
+    Graph {
+        #[command(subcommand)]
+        command: GraphCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum GraphCommands {
+    /// Find notes within N hops of a note
+    Neighbors {
+        /// Path to the vault directory
+        vault_path: PathBuf,
+        /// Note ID to find neighbors of
+        note: String,
+        /// Maximum distance (hops)
+        #[arg(short, long, default_value = "1")]
+        depth: usize,
+    },
+    /// Find notes with no links
+    Orphans {
+        /// Path to the vault directory
+        vault_path: PathBuf,
+    },
+    /// Find shortest path between two notes
+    Path {
+        /// Path to the vault directory
+        vault_path: PathBuf,
+        /// Starting note ID
+        from: String,
+        /// Ending note ID
+        to: String,
+    },
+    /// Show graph statistics
+    Stats {
+        /// Path to the vault directory
+        vault_path: PathBuf,
+    },
 }
 
 fn main() -> Result<()> {
@@ -99,30 +147,33 @@ fn main() -> Result<()> {
             commands::watch_vault(&vault_path)?;
         }
         Commands::List { vault_path, query } => {
-            list_notes(&vault_path, query.as_deref())?;
+            commands::list_notes(&vault_path, query.as_deref())?;
         }
-    }
-
-    Ok(())
-}
-
-fn list_notes(vault_path: &PathBuf, query: Option<&str>) -> Result<()> {
-    use db::{Database, Query, QueryExecutor};
-
-    let db_path = vault_path.join(".snot/db.bin");
-    let db = Database::with_path(db_path)?;
-
-    let notes = if let Some(query_str) = query {
-        let parsed_query = Query::parse(query_str)?;
-        let executor = QueryExecutor::new(&db);
-        executor.execute(&parsed_query)
-    } else {
-        db.get_all()
-    };
-
-    // Output one path per line for FZF
-    for note in notes {
-        println!("{}", note.file_path.display());
+        Commands::Tags { vault_path } => {
+            commands::list_tags(&vault_path)?;
+        }
+        Commands::Graph { command } => match command {
+            GraphCommands::Neighbors {
+                vault_path,
+                note,
+                depth,
+            } => {
+                commands::graph_neighbors(&vault_path, &note, depth)?;
+            }
+            GraphCommands::Orphans { vault_path } => {
+                commands::graph_orphans(&vault_path)?;
+            }
+            GraphCommands::Path {
+                vault_path,
+                from,
+                to,
+            } => {
+                commands::graph_path(&vault_path, &from, &to)?;
+            }
+            GraphCommands::Stats { vault_path } => {
+                commands::graph_stats(&vault_path)?;
+            }
+        },
     }
 
     Ok(())

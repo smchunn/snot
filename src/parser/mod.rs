@@ -1,3 +1,2 @@
-pub mod links;
-
-pub use links::{MarkdownParser, ParsedNote};
+pub mod frontmatter;
+pub mod markdown;

@@ -1,17 +1,20 @@
 use std::path::Path;
+
 use anyhow::Result;
 use serde_json::json;
-use crate::db::{Database, Query, QueryExecutor};
+
+use crate::query::{self, QueryExecutor};
+use crate::vault::Vault;
 
 pub fn query_notes(vault_path: &Path, query_str: &str) -> Result<()> {
-    let db_path = vault_path.join(".snot/db.bin");
-    let db = Database::with_path(db_path)?;
+    let vault =
+        Vault::open(vault_path).map_err(|e| anyhow::anyhow!("Failed to open vault: {}", e))?;
 
-    let query = Query::parse(query_str)?;
-    let executor = QueryExecutor::new(&db);
-    let results = executor.execute(&query);
+    let parsed = query::parse(query_str).map_err(|e| anyhow::anyhow!("{}", e))?;
 
-    // Output as JSON for easy parsing by Neovim
+    let executor = QueryExecutor::new(&vault.db);
+    let results = executor.execute(&parsed);
+
     let json_results: Vec<_> = results
         .iter()
         .map(|note| {
@@ -20,7 +23,7 @@ pub fn query_notes(vault_path: &Path, query_str: &str) -> Result<()> {
                 "title": note.title,
                 "path": note.file_path,
                 "tags": note.tags,
-                "links": note.links,
+                "aliases": note.aliases,
                 "created_at": note.created_at,
                 "modified_at": note.modified_at,
             })

@@ -1,3 +1,4 @@
-pub mod checksum;
+pub mod handler;
+pub mod scanner;
 
-pub use checksum::{FileWatcher, FileEvent};
+pub use handler::{FileEvent, VaultWatcher};

@@ -1,19 +1,21 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
+
 use anyhow::Result;
 use serde_json::json;
-use crate::db::Database;
+
+use crate::vault::Vault;
 
 pub fn get_backlinks(vault_path: &Path, file_path: &Path) -> Result<()> {
-    let db_path = vault_path.join(".snot/db.bin");
-    let db = Database::with_path(db_path)?;
+    let vault =
+        Vault::open(vault_path).map_err(|e| anyhow::anyhow!("Failed to open vault: {}", e))?;
 
-    let file_path_buf = PathBuf::from(file_path);
-    let note = db.get_by_path(&file_path_buf)
+    let note = vault
+        .db
+        .get_by_path(file_path)
         .ok_or_else(|| anyhow::anyhow!("Note not found: {}", file_path.display()))?;
 
-    let backlinks = db.get_backlinks(&note.id);
+    let backlinks = vault.db.get_backlinks(&note.id);
 
-    // Output as JSON
     let json_results: Vec<_> = backlinks
         .iter()
         .map(|note| {

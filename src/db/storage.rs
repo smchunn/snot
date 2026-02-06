@@ -1,243 +1,146 @@
-use std::collections::{HashMap, HashSet, BTreeMap};
-use std::path::PathBuf;
-use std::fs::{File, create_dir_all};
-use std::io::{Read, Write};
-use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+use std::fs;
+use std::path::Path;
+
 use chrono::{DateTime, Utc};
-use anyhow::{Result, Context};
+use serde::{Deserialize, Serialize};
 
-pub type NoteId = String;
+use crate::error::{Result, SnotError};
+use crate::note::{Note, NoteId};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Note {
-    pub id: NoteId,
-    pub title: String,
-    pub aliases: Vec<String>,
-    pub file_path: PathBuf,
-    pub tags: HashSet<String>,
-    pub links: HashSet<String>,
-    pub backlinks: HashSet<String>,
-    pub created_at: DateTime<Utc>,
-    pub modified_at: DateTime<Utc>,
-    pub checksum: String,
-}
+use super::graph::LinkGraph;
+use super::index::{AliasIndex, DateIndex, PathIndex, TagIndex};
+use super::schema;
 
-impl Note {
-    pub fn new(
-        id: NoteId,
-        title: String,
-        file_path: PathBuf,
-        checksum: String,
-    ) -> Self {
-        let now = Utc::now();
-        Self {
-            id,
-            title,
-            aliases: Vec::new(),
-            file_path,
-            tags: HashSet::new(),
-            links: HashSet::new(),
-            backlinks: HashSet::new(),
-            created_at: now,
-            modified_at: now,
-            checksum,
-        }
-    }
-
-    pub fn update_metadata(&mut self, checksum: String) {
-        self.checksum = checksum;
-        self.modified_at = Utc::now();
-    }
-}
-
+/// In-memory database storing note metadata with indexes and a link graph.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Database {
-    notes: HashMap<NoteId, Note>,
-    // Index for fast lookups
-    tag_index: HashMap<String, HashSet<NoteId>>,
-    // Index for date-based queries
-    date_index: BTreeMap<DateTime<Utc>, HashSet<NoteId>>,
-    // Path to note ID mapping
-    path_index: HashMap<PathBuf, NoteId>,
-    // Database file path
-    #[serde(skip)]
-    db_path: Option<PathBuf>,
+    notes: std::collections::HashMap<NoteId, Note>,
+    tag_index: TagIndex,
+    date_index: DateIndex,
+    path_index: PathIndex,
+    alias_index: AliasIndex,
+    link_graph: LinkGraph,
 }
 
 impl Database {
     pub fn new() -> Self {
         Self {
-            notes: HashMap::new(),
-            tag_index: HashMap::new(),
-            date_index: BTreeMap::new(),
-            path_index: HashMap::new(),
-            db_path: None,
+            notes: std::collections::HashMap::new(),
+            tag_index: TagIndex::default(),
+            date_index: DateIndex::default(),
+            path_index: PathIndex::default(),
+            alias_index: AliasIndex::default(),
+            link_graph: LinkGraph::new(),
         }
     }
 
-    pub fn with_path(path: PathBuf) -> Result<Self> {
-        let mut db = if path.exists() {
-            Self::load(&path)?
-        } else {
-            Self::new()
-        };
-        db.db_path = Some(path);
+    /// Load a database from a binary file with schema validation.
+    pub fn load(path: &Path) -> Result<Self> {
+        let data = fs::read(path)?;
+        let payload = schema::read_header(&data)?;
+        let db: Database =
+            bincode::deserialize(payload).map_err(|e| SnotError::Serialization(e.to_string()))?;
         Ok(db)
     }
 
-    pub fn load(path: &PathBuf) -> Result<Self> {
-        let mut file = File::open(path)
-            .context("Failed to open database file")?;
-        let mut buffer = Vec::new();
-        file.read_to_end(&mut buffer)
-            .context("Failed to read database file")?;
-
-        let db: Database = bincode::deserialize(&buffer)
-            .context("Failed to deserialize database")?;
-        Ok(db)
-    }
-
-    pub fn save(&self) -> Result<()> {
-        if let Some(path) = &self.db_path {
-            if let Some(parent) = path.parent() {
-                create_dir_all(parent)?;
-            }
-
-            let encoded = bincode::serialize(&self)
-                .context("Failed to serialize database")?;
-
-            let mut file = File::create(path)
-                .context("Failed to create database file")?;
-            file.write_all(&encoded)
-                .context("Failed to write database file")?;
-            file.sync_all()?;
+    /// Save the database to a binary file with schema header.
+    pub fn save(&self, path: &Path) -> Result<()> {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
         }
+
+        let mut buf = Vec::new();
+        schema::write_header(&mut buf);
+
+        let payload =
+            bincode::serialize(self).map_err(|e| SnotError::Serialization(e.to_string()))?;
+        buf.extend_from_slice(&payload);
+
+        fs::write(path, &buf)?;
         Ok(())
     }
 
-    // CRUD Operations
+    // --- CRUD ---
 
-    pub fn insert(&mut self, mut note: Note) -> Result<()> {
+    /// Insert a new note with its links.
+    pub fn insert(&mut self, note: Note, links: HashSet<NoteId>) {
+        let id = note.id.clone();
+
         // Update indexes
         for tag in &note.tags {
-            self.tag_index
-                .entry(tag.clone())
-                .or_insert_with(HashSet::new)
-                .insert(note.id.clone());
+            self.tag_index.insert(tag, &id);
+        }
+        self.date_index.insert(note.modified_at, &id);
+        self.path_index.insert(note.file_path.clone(), id.clone());
+        for alias in &note.aliases {
+            self.alias_index.insert(alias, &id);
         }
 
-        self.date_index
-            .entry(note.modified_at)
-            .or_insert_with(HashSet::new)
-            .insert(note.id.clone());
+        // Update link graph
+        self.link_graph.set_links(&id, links);
 
-        self.path_index.insert(note.file_path.clone(), note.id.clone());
+        self.notes.insert(id, note);
+    }
 
-        // Update backlinks for linked notes
-        for link in &note.links {
-            if let Some(linked_note) = self.notes.get_mut(link) {
-                linked_note.backlinks.insert(note.id.clone());
+    /// Update an existing note, re-indexing everything.
+    pub fn update(&mut self, id: &NoteId, note: Note, links: HashSet<NoteId>) {
+        // Remove old indexes
+        if let Some(old) = self.notes.get(id) {
+            for tag in &old.tags {
+                self.tag_index.remove(tag, id);
+            }
+            self.date_index.remove(&old.modified_at, id);
+            self.path_index.remove(&old.file_path);
+            for alias in &old.aliases {
+                self.alias_index.remove(alias, id);
             }
         }
 
-        // Add backlinks from notes that link to this note
-        let backlinks: Vec<String> = self.notes
-            .iter()
-            .filter(|(_, n)| n.links.contains(&note.id))
-            .map(|(id, _)| id.clone())
-            .collect();
-
-        for backlink_id in backlinks {
-            note.backlinks.insert(backlink_id);
-        }
-
-        self.notes.insert(note.id.clone(), note);
-        Ok(())
+        // Insert with new indexes (handles graph too)
+        self.insert(note, links);
     }
+
+    /// Delete a note by ID.
+    pub fn delete(&mut self, id: &NoteId) {
+        if let Some(note) = self.notes.remove(id) {
+            for tag in &note.tags {
+                self.tag_index.remove(tag, id);
+            }
+            self.date_index.remove(&note.modified_at, id);
+            self.path_index.remove(&note.file_path);
+            for alias in &note.aliases {
+                self.alias_index.remove(alias, id);
+            }
+            self.link_graph.remove_note(id);
+        }
+    }
+
+    // --- Lookups ---
 
     pub fn get(&self, id: &NoteId) -> Option<&Note> {
         self.notes.get(id)
     }
 
-    pub fn get_by_path(&self, path: &PathBuf) -> Option<&Note> {
-        self.path_index.get(path)
+    pub fn get_by_path(&self, path: &Path) -> Option<&Note> {
+        self.path_index
+            .get(&path.to_path_buf())
             .and_then(|id| self.notes.get(id))
     }
 
-    pub fn update(&mut self, id: &NoteId, note: Note) -> Result<()> {
-        // Remove old indexes - clone data we need before mutable borrows
-        let (old_tags, old_modified_at, old_path, old_links) = if let Some(old_note) = self.notes.get(id) {
-            (
-                old_note.tags.clone(),
-                old_note.modified_at,
-                old_note.file_path.clone(),
-                old_note.links.clone(),
-            )
-        } else {
-            // If note doesn't exist, just insert it
-            return self.insert(note);
-        };
-
-        // Now we can safely do mutable borrows
-        for tag in &old_tags {
-            if let Some(note_set) = self.tag_index.get_mut(tag) {
-                note_set.remove(id);
-            }
-        }
-
-        if let Some(note_set) = self.date_index.get_mut(&old_modified_at) {
-            note_set.remove(id);
-        }
-
-        self.path_index.remove(&old_path);
-
-        // Remove old backlinks
-        for link in &old_links {
-            if let Some(linked_note) = self.notes.get_mut(link) {
-                linked_note.backlinks.remove(id);
-            }
-        }
-
-        // Insert with new indexes
-        self.insert(note)?;
-        Ok(())
+    pub fn get_all(&self) -> Vec<&Note> {
+        self.notes.values().collect()
     }
 
-    pub fn delete(&mut self, id: &NoteId) -> Result<()> {
-        if let Some(note) = self.notes.remove(id) {
-            // Remove from tag index
-            for tag in &note.tags {
-                if let Some(note_set) = self.tag_index.get_mut(tag) {
-                    note_set.remove(id);
-                }
-            }
-
-            // Remove from date index
-            if let Some(note_set) = self.date_index.get_mut(&note.modified_at) {
-                note_set.remove(id);
-            }
-
-            // Remove from path index
-            self.path_index.remove(&note.file_path);
-
-            // Remove backlinks from linked notes
-            for link in &note.links {
-                if let Some(linked_note) = self.notes.get_mut(link) {
-                    linked_note.backlinks.remove(id);
-                }
-            }
-
-            // Remove this note's ID from notes that had it as a backlink
-            for backlink_id in &note.backlinks {
-                if let Some(backlinking_note) = self.notes.get_mut(backlink_id) {
-                    backlinking_note.links.remove(id);
-                }
-            }
-        }
-        Ok(())
+    pub fn get_all_file_paths(&self) -> Vec<std::path::PathBuf> {
+        self.notes.values().map(|n| n.file_path.clone()).collect()
     }
 
-    // Query helpers
+    pub fn get_notes_by_ids(&self, ids: &HashSet<NoteId>) -> Vec<&Note> {
+        ids.iter().filter_map(|id| self.notes.get(id)).collect()
+    }
+
+    // --- Index queries ---
 
     pub fn get_by_tag(&self, tag: &str) -> Vec<&Note> {
         self.tag_index
@@ -246,50 +149,157 @@ impl Database {
             .unwrap_or_default()
     }
 
-    pub fn get_all(&self) -> Vec<&Note> {
-        self.notes.values().collect()
-    }
-
-    pub fn get_all_file_paths(&self) -> Vec<PathBuf> {
-        self.notes.values().map(|note| note.file_path.clone()).collect()
-    }
-
-    pub fn get_notes_by_paths(&self, paths: &[PathBuf]) -> Vec<&Note> {
-        paths.iter()
-            .filter_map(|path| self.get_by_path(path))
-            .collect()
-    }
-
-    pub fn get_backlinks(&self, id: &NoteId) -> Vec<&Note> {
-        self.notes
-            .get(id)
-            .map(|note| {
-                note.backlinks
-                    .iter()
-                    .filter_map(|backlink_id| self.notes.get(backlink_id))
-                    .collect()
-            })
+    #[allow(dead_code)]
+    pub fn get_by_alias(&self, alias: &str) -> Vec<&Note> {
+        self.alias_index
+            .get(alias)
+            .map(|ids| ids.iter().filter_map(|id| self.notes.get(id)).collect())
             .unwrap_or_default()
     }
 
-    pub fn get_in_date_range(
-        &self,
-        start: DateTime<Utc>,
-        end: DateTime<Utc>,
-    ) -> Vec<&Note> {
-        self.date_index
-            .range(start..=end)
-            .flat_map(|(_, ids)| ids.iter().filter_map(|id| self.notes.get(id)))
-            .collect()
+    pub fn get_in_date_range(&self, start: DateTime<Utc>, end: DateTime<Utc>) -> Vec<&Note> {
+        let ids = self.date_index.range(start, end);
+        ids.iter().filter_map(|id| self.notes.get(id)).collect()
     }
 
     pub fn all_tags(&self) -> Vec<String> {
-        self.tag_index.keys().cloned().collect()
+        self.tag_index.all_tags()
+    }
+
+    pub fn all_note_ids(&self) -> HashSet<NoteId> {
+        self.notes.keys().cloned().collect()
+    }
+
+    // --- Graph access ---
+
+    pub fn graph(&self) -> &LinkGraph {
+        &self.link_graph
+    }
+
+    /// Get backlinks for a note (notes that link to it).
+    pub fn get_backlinks(&self, id: &NoteId) -> Vec<&Note> {
+        let backers = self.link_graph.backlinks(id);
+        backers
+            .iter()
+            .filter_map(|bid| self.notes.get(bid))
+            .collect()
+    }
+
+    /// Get forward links for a note (notes it links to).
+    #[allow(dead_code)]
+    pub fn get_forward_links(&self, id: &NoteId) -> Vec<&Note> {
+        let targets = self.link_graph.forward_links(id);
+        targets
+            .iter()
+            .filter_map(|tid| self.notes.get(tid))
+            .collect()
     }
 }
 
 impl Default for Database {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn make_note(id: &str, tags: &[&str]) -> (Note, HashSet<NoteId>) {
+        let mut note = Note::new(
+            id.to_string(),
+            format!("Title of {}", id),
+            PathBuf::from(format!("{}.md", id)),
+            "checksum".to_string(),
+        );
+        note.tags = tags.iter().map(|t| t.to_string()).collect();
+        (note, HashSet::new())
+    }
+
+    #[test]
+    fn test_insert_and_get() {
+        let mut db = Database::new();
+        let (note, links) = make_note("test", &["work"]);
+        db.insert(note, links);
+
+        assert!(db.get(&"test".into()).is_some());
+        assert_eq!(db.get(&"test".into()).unwrap().title, "Title of test");
+    }
+
+    #[test]
+    fn test_tag_index() {
+        let mut db = Database::new();
+        let (note, links) = make_note("n1", &["work", "meeting"]);
+        db.insert(note, links);
+
+        let (note2, links2) = make_note("n2", &["work"]);
+        db.insert(note2, links2);
+
+        let work_notes = db.get_by_tag("work");
+        assert_eq!(work_notes.len(), 2);
+
+        let meeting_notes = db.get_by_tag("meeting");
+        assert_eq!(meeting_notes.len(), 1);
+    }
+
+    #[test]
+    fn test_update() {
+        let mut db = Database::new();
+        let (note, links) = make_note("n1", &["old-tag"]);
+        db.insert(note, links);
+
+        let (updated, links2) = make_note("n1", &["new-tag"]);
+        db.update(&"n1".into(), updated, links2);
+
+        assert!(db.get_by_tag("old-tag").is_empty());
+        assert_eq!(db.get_by_tag("new-tag").len(), 1);
+    }
+
+    #[test]
+    fn test_delete() {
+        let mut db = Database::new();
+        let (note, links) = make_note("n1", &["work"]);
+        db.insert(note, links);
+
+        db.delete(&"n1".into());
+        assert!(db.get(&"n1".into()).is_none());
+        assert!(db.get_by_tag("work").is_empty());
+    }
+
+    #[test]
+    fn test_graph_links() {
+        let mut db = Database::new();
+        let (note_a, _) = make_note("a", &[]);
+        let links_a: HashSet<NoteId> = ["b".to_string()].into();
+        db.insert(note_a, links_a);
+
+        let (note_b, _) = make_note("b", &[]);
+        let links_b: HashSet<NoteId> = ["c".to_string()].into();
+        db.insert(note_b, links_b);
+
+        let backlinks = db.get_backlinks(&"b".into());
+        assert_eq!(backlinks.len(), 1);
+        assert_eq!(backlinks[0].id, "a");
+
+        let forward = db.get_forward_links(&"a".into());
+        assert_eq!(forward.len(), 1);
+        assert_eq!(forward[0].id, "b");
+    }
+
+    #[test]
+    fn test_save_and_load() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("db.bin");
+
+        let mut db = Database::new();
+        let (note, links) = make_note("test", &["tag1"]);
+        db.insert(note, links);
+        db.save(&db_path).unwrap();
+
+        let loaded = Database::load(&db_path).unwrap();
+        assert!(loaded.get(&"test".into()).is_some());
+        assert_eq!(loaded.get_by_tag("tag1").len(), 1);
     }
 }

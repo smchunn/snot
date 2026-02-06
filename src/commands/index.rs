@@ -1,93 +1,44 @@
-use std::path::{Path, PathBuf};
-use std::fs;
-use anyhow::{Result, Context};
-use rayon::prelude::*;
-use crate::db::{Database, Note};
-use crate::parser::MarkdownParser;
-use crate::watcher::FileWatcher;
+use std::path::Path;
+
+use anyhow::Result;
+
+use crate::vault::Vault;
+use crate::watcher::scanner;
 
 pub fn index_vault(vault_path: &Path, force_reindex: bool) -> Result<()> {
-    let db_path = vault_path.join(".snot/db.bin");
-    let mut db = Database::with_path(db_path.clone())?;
+    let mut vault = Vault::open(vault_path)
+        .or_else(|_| Vault::init(vault_path))
+        .map_err(|e| anyhow::anyhow!("Failed to open vault: {}", e))?;
 
-    let watcher = FileWatcher::new(vault_path.to_path_buf());
-    let markdown_files = watcher.scan_vault()?;
+    let markdown_files = scanner::scan_vault(&vault.path)
+        .map_err(|e| anyhow::anyhow!("Failed to scan vault: {}", e))?;
 
     println!("Found {} markdown files", markdown_files.len());
 
-    // Process files in parallel
-    let notes: Vec<_> = markdown_files
-        .par_iter()
-        .filter_map(|path| {
-            process_file(&db, path, vault_path, force_reindex)
-                .map_err(|e| eprintln!("Error processing {}: {}", path.display(), e))
-                .ok()
-        })
-        .flatten()
-        .collect();
+    // Process files - collect errors but don't stop
+    let mut indexed = 0;
+    let mut errors = 0;
 
-    // Insert all notes into database
-    for note in notes {
-        db.insert(note)?;
-    }
-
-    db.save()?;
-
-    println!("Indexed {} notes", db.get_all().len());
-
-    Ok(())
-}
-
-fn process_file(
-    db: &Database,
-    path: &Path,
-    vault_path: &Path,
-    force_reindex: bool,
-) -> Result<Option<Note>> {
-    let checksum = FileWatcher::calculate_checksum(path)?;
-
-    // Check if file has changed
-    if !force_reindex {
-        if let Some(existing_note) = db.get_by_path(&path.to_path_buf()) {
-            if existing_note.checksum == checksum {
-                // File hasn't changed, skip
-                return Ok(None);
+    for path in &markdown_files {
+        match vault.ingest_file(path, force_reindex) {
+            Ok(true) => indexed += 1,
+            Ok(false) => {} // skipped, unchanged
+            Err(e) => {
+                eprintln!("Error processing {}: {}", path.display(), e);
+                errors += 1;
             }
         }
     }
 
-    let content = fs::read_to_string(path)
-        .context("Failed to read file")?;
+    vault
+        .save()
+        .map_err(|e| anyhow::anyhow!("Failed to save database: {}", e))?;
 
-    let parsed = MarkdownParser::parse(&content)?;
-
-    // Generate note ID from file path
-    let note_id = generate_note_id(path, vault_path)?;
-
-    let mut note = Note::new(
-        note_id,
-        parsed.title,
-        path.to_path_buf(),
-        checksum,
+    let total = vault.db.get_all().len();
+    println!(
+        "Indexed {} new/changed notes ({} total, {} errors)",
+        indexed, total, errors
     );
 
-    note.aliases = parsed.aliases;
-    note.tags = parsed.tags;
-    note.links = parsed.links;
-
-    Ok(Some(note))
-}
-
-fn generate_note_id(file_path: &Path, vault_path: &Path) -> Result<String> {
-    let relative_path = file_path.strip_prefix(vault_path)
-        .context("File is not in vault")?;
-
-    let id = relative_path
-        .with_extension("")
-        .to_string_lossy()
-        .to_string()
-        .replace('/', "-")
-        .replace('\\', "-");
-
-    Ok(MarkdownParser::normalize_note_id(&id))
+    Ok(())
 }
