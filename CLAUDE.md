@@ -5,7 +5,7 @@ Below this line, if you see !!, treat that as a command to update the section of
 
 ## Project Overview
 
-SNOT (Simple Note Organization Tool) is a Rust-based note management system with Neovim integration. It serves as a fast, lightweight alternative to Obsidian, featuring a custom database, query language, and real-time file watching.
+SNOT (Simple Note Organization Tool) is a Rust-based note management system with Neovim integration. It serves as a fast, lightweight alternative to Obsidian, featuring a custom database with link graph, dual query language (shorthand + SQL-style), fuzzy search, and real-time file watching.
 
 ## Commands
 
@@ -18,7 +18,7 @@ cargo build
 # Build optimized release version
 cargo build --release
 
-# Run tests
+# Run tests (94 unit tests)
 cargo test
 
 # Run a specific test
@@ -43,8 +43,17 @@ cargo run -- init ./test_vault
 # Index notes
 cargo run -- index ./test_vault
 
-# Query notes
+# Query notes (shorthand syntax)
 cargo run -- query ./test_vault "tag:work"
+cargo run -- query ./test_vault "#work title:meeting"
+cargo run -- query ./test_vault "~meting"
+cargo run -- query ./test_vault "tag:work OR tag:personal"
+cargo run -- query ./test_vault "-tag:archived"
+
+# Query notes (SQL-style syntax)
+cargo run -- query ./test_vault "tags CONTAINS 'work' AND title LIKE '%meeting%'"
+cargo run -- query ./test_vault "fuzzy LIKE 'meting'"
+cargo run -- query ./test_vault "neighbors('project-plan', 2)"
 
 # Create a note
 cargo run -- create ./test_vault "Test Note"
@@ -52,127 +61,110 @@ cargo run -- create ./test_vault "Test Note"
 # List notes
 cargo run -- list ./test_vault
 
+# List all tags
+cargo run -- tags ./test_vault
+
+# Graph operations
+cargo run -- graph neighbors ./test_vault some-note --depth 2
+cargo run -- graph orphans ./test_vault
+cargo run -- graph path ./test_vault note-a note-b
+cargo run -- graph stats ./test_vault
+
 # Watch vault for changes
 cargo run -- watch ./test_vault
 ```
 
 ## Architecture
 
-### High-Level Design
+### Module Structure
 
-The project follows a modular architecture with clear separation of concerns:
-
-1. **Database Layer (`src/db/`)**: Custom in-memory database with metadata-only storage
-   - `storage.rs`: Core data structures (Note, Database) with CRUD operations
-   - `query.rs`: SQL-style query parser and executor using recursive descent parsing
-   - Stores only frontmatter (title, tags, aliases, links) - NOT full content
-   - Uses HashMap for O(1) lookups, BTree for date ranges, maintains bidirectional link tracking
-   - Content searches delegated to ripgrep/grep for better performance
-
-2. **Parser Layer (`src/parser/`)**: Markdown frontmatter extraction
-   - `links.rs`: Extracts frontmatter, wiki-links `[[note]]`, tags `#tag`, titles, and aliases
-   - Handles both inline tags and YAML frontmatter tags/aliases
-   - Normalizes note IDs to kebab-case format
-   - Does NOT store full file content - only metadata
-
-3. **Watcher Layer (`src/watcher/`)**: File system monitoring with caching
-   - `checksum.rs`: SHA-256 based change detection for incremental updates
-   - Uses `notify` crate for cross-platform file watching
-   - Only reindexes files that have actually changed
-
-4. **Commands Layer (`src/commands/`)**: CLI command implementations
-   - Each command is in its own module (init, index, query, create, update, backlinks, watch)
-   - `update.rs`: Updates single file metadata (used by Neovim on save)
-   - All commands output JSON for easy consumption by the Neovim plugin
-
-5. **Neovim Plugin** (separate repository: [snot.nvim](https://github.com/yourusername/snot.nvim))
-   - Maintained separately for better separation of concerns
-   - Communicates with Rust CLI via jobstart
-   - Provides commands, completion, and picker integration
-   - See snot.nvim repository for plugin-specific development
+```
+src/
+  main.rs                 -- CLI (clap) + command dispatch
+  lib.rs                  -- Public API re-exports
+  error.rs                -- SnotError (thiserror) + Result type alias
+  note.rs                 -- Note, NoteId, normalize_note_id, note_id_from_path
+  vault.rs                -- Vault: coordinates db, parser, watcher
+  db/
+    mod.rs
+    storage.rs            -- Database: HashMap + indexes, CRUD, persistence
+    schema.rs             -- Binary header (magic "SNOT" + version), validation
+    index.rs              -- TagIndex, DateIndex, PathIndex, AliasIndex
+    graph.rs              -- LinkGraph: adjacency lists, BFS, shortest path,
+                             connected components, orphan detection
+  query/
+    mod.rs
+    ast.rs                -- Query AST (Tag, Title, Alias, Fuzzy, Content,
+                             LinksTo, LinksFrom, Neighborhood, Orphan, DateRange)
+    parser.rs             -- Dual parser: shorthand auto-detect + SQL recursive descent
+    executor.rs           -- Set-based query execution, graph-aware
+    fuzzy.rs              -- Trigram similarity matching
+  parser/
+    mod.rs
+    markdown.rs           -- parse() -> ParsedNote (regex for inline tags/links)
+    frontmatter.rs        -- Frontmatter struct with serde_yaml deserialization
+  watcher/
+    mod.rs
+    handler.rs            -- VaultWatcher: owned lifecycle (Drop), debounced poll()
+    scanner.rs            -- scan_vault(), calculate_checksum()
+  commands/
+    mod.rs
+    init.rs, index.rs, query.rs, create.rs, update.rs, backlinks.rs,
+    watch.rs, list.rs, tags.rs, graph.rs
+```
 
 ### Key Design Decisions
 
-1. **Custom Database vs SQLite**: Built from scratch for learning and performance
-   - Allows fine-grained control over indexing strategy
-   - No SQL overhead for simple operations
-   - Binary serialization with bincode for fast persistence
+1. **Vault as Central Coordinator**: All commands receive `Vault` instead of raw paths. Centralizes DB path computation, note ID generation, and file ingestion logic. No more duplication across commands.
 
-2. **Frontmatter-Only Storage**: Store metadata, not content
-   - Only title, tags, aliases, links, and checksums stored in database
-   - Dramatically reduces memory usage for large vaults
-   - Content searches use ripgrep/grep instead of in-memory scan
-   - Falls back to title/alias search if external tools unavailable
+2. **Links in Graph, Not Note**: The `Note` struct stores only metadata (title, tags, aliases, checksum). Links and backlinks are managed by `LinkGraph` with forward/reverse adjacency lists. Backlink maintenance is O(k) where k = links in the note.
 
-3. **Query Language**: SQL-style syntax instead of custom DSL
-   - Supports complex boolean logic (AND, OR, NOT)
-   - SQL-like operators: `tags CONTAINS 'work'`, `content LIKE '%text%'`
-   - Optional full SQL syntax: `SELECT * FROM notes WHERE ...`
-   - Recursive descent parser for clean implementation
+3. **serde_yaml for Frontmatter**: Replaces hand-rolled YAML parsing. Handles quoted values, nested structures, multi-line strings correctly. The `Frontmatter` struct uses `#[serde(flatten)]` for user-defined fields.
 
-4. **Incremental Indexing**: SHA-256 checksums prevent redundant work
-   - Critical for large vaults (1000+ notes)
-   - Checksum stored with each note in database
-   - File watcher triggers selective reindexing
-   - Auto-update on save via Neovim BufWritePost autocmd
+4. **Dual Query Syntax**: Shorthand for quick CLI use (`tag:work`, `#work`, `~fuzzy`), SQL-style for complex queries (`tags CONTAINS 'work' AND title LIKE '%meeting%'`). Auto-detected by presence of SQL keywords. Both parse into the same AST.
 
-5. **Bidirectional Links**: Automatically maintain backlinks
-   - When note A links to note B, note B's backlinks include A
-   - Updated atomically during insert/update/delete operations
-   - No separate backlink indexing required
+5. **Schema-Versioned Database**: Binary format: 4 bytes magic (`SNOT`) + 4 bytes version (u32 LE) + bincode payload. Returns `SnotError::SchemaVersionMismatch` on version mismatch instead of silent corruption.
 
-6. **Neovim Integration**: CLI-first design with editor as consumer
-   - All functionality available via CLI
-   - Neovim plugin is thin wrapper using jobstart
-   - JSON output for easy parsing
-   - Picker abstraction supports fzf-lua, telescope, or vim.ui.select
+6. **Proper Watcher Lifecycle**: `VaultWatcher` owns the `RecommendedWatcher` as a struct field (dropped via `Drop`). `poll(debounce_duration)` coalesces rapid events for the same file and returns batches. Watch command saves once per batch.
+
+7. **Error Strategy**: `thiserror` for structured library errors (`SnotError` in `error.rs`). `anyhow` only at CLI command level for context wrapping. Enables Neovim plugin to distinguish error types from JSON output.
+
+8. **No Unnecessary Traits**: Concrete types tested with `tempfile::TempDir`. No `Storage` trait, no `Parser` trait.
+
+### Data Flow
+
+1. **Indexing**: `scan_vault()` -> for each `.md` file -> `calculate_checksum()` -> skip if unchanged -> `markdown::parse()` -> `Vault::ingest_file()` -> `Database::insert/update(note, links)` -> indexes + graph updated -> `vault.save()`
+2. **Querying**: CLI input -> `query::parse()` (auto-detects syntax) -> `Query` AST -> `QueryExecutor::execute()` -> set operations on indexes/graph -> JSON output
+3. **Watching**: `VaultWatcher::poll(debounce)` -> batch of `FileEvent`s -> `Vault::ingest_file()`/`delete_file()` per event -> single `vault.save()` per batch
 
 ## Important Implementation Details
 
-### Note ID Generation
+### Note ID Generation (centralized in `note.rs`)
 
 Notes are identified by their relative path within the vault, converted to kebab-case:
 
-- `vault/work/meeting-notes.md` → ID: `work-meeting-notes`
+- `vault/work/meeting-notes.md` -> ID: `work-meeting-notes`
 - Path separators become hyphens
 - Extension removed
-- Normalized to lowercase
+- Normalized to lowercase via `normalize_note_id()`
 
 ### Link Resolution
 
 Wiki-links `[[note-name]]` are resolved using normalized IDs:
 
-- `[[Work Meeting]]` → links to note with ID `work-meeting`
+- `[[Work Meeting]]` -> links to note with ID `work-meeting`
 - Display text supported: `[[note-name|Custom Text]]`
-- Links are bidirectional - backlinks automatically tracked
+- Links stored in `LinkGraph`, not on `Note` struct
+- Backlinks maintained automatically via reverse adjacency list
 
-### Database Update Strategy
+### Query Syntax Auto-Detection
 
-The `update()` method has a specific pattern to avoid borrow checker issues:
+The parser checks for SQL keywords (`CONTAINS`, `LIKE`, `BETWEEN`, `NOT column`, `links_to = '...'`, `neighbors(...)`) to decide which parser to use. If none found, shorthand parser is used.
 
-1. Clone necessary data from old note (tags, links, paths, dates)
-2. Remove old indexes using cloned data
-3. Insert new note with updated indexes
-4. This avoids simultaneous immutable and mutable borrows of `self.notes`
+### Database Persistence
 
-### File Watching Considerations
-
-The file watcher uses `notify` which requires keeping the watcher alive:
-
-- Current implementation leaks the watcher (`std::mem::forget`)
-- In production, should use proper lifecycle management
-- Watch mode runs indefinitely until Ctrl+C
-
-### Query Execution Performance
-
-Queries are executed in-memory with set operations:
-
-- Tag queries: O(1) lookup in tag_index
-- Content search: Delegated to ripgrep/grep (fast external tools with inverted indexes)
-  - Falls back to title/alias search if external tools unavailable
-- Date ranges: O(log n) BTree range iteration
-- AND/OR: Set intersection/union operations
-- Results are references to avoid cloning
+Load: `fs::read()` -> `schema::read_header()` (validate magic+version) -> `bincode::deserialize()` -> `Database`
+Save: `schema::write_header()` -> `bincode::serialize()` -> `fs::write()`
 
 ## Neovim Plugin Notes
 
@@ -286,13 +278,22 @@ All backend calls use `vim.fn.jobstart` for async execution:
 
 ## Testing Strategy
 
-### Unit Tests
+### Unit Tests (94 tests)
 
 Each module has inline tests:
 
 ```bash
-cargo test parser::tests::test_extract_tags
-cargo test db::query::tests::test_parse_and_query
+cargo test parser::markdown::tests       # Markdown parsing tests
+cargo test parser::frontmatter::tests    # serde_yaml frontmatter tests
+cargo test db::storage::tests            # Database CRUD tests
+cargo test db::graph::tests              # Link graph traversal tests
+cargo test db::schema::tests             # Schema versioning tests
+cargo test query::parser::tests          # Both shorthand + SQL parser tests
+cargo test query::executor::tests        # Query execution tests
+cargo test query::fuzzy::tests           # Trigram similarity tests
+cargo test note::tests                   # Note ID generation tests
+cargo test vault::tests                  # Vault integration tests
+cargo test watcher::scanner::tests       # File scanning tests
 ```
 
 ### Integration Testing
@@ -300,74 +301,54 @@ cargo test db::query::tests::test_parse_and_query
 Manual testing workflow:
 
 1. Create test vault: `cargo run -- init ./test_vault`
-2. Add sample markdown files
+2. Add sample markdown files with frontmatter, tags, wiki-links
 3. Index: `cargo run -- index ./test_vault`
-4. Query: `cargo run -- query ./test_vault "tag:test"`
-5. Verify JSON output
-
-### Performance Testing
-
-For large vaults:
-
-1. Generate 1000+ test notes with script
-2. Measure initial index time
-3. Modify one file
-4. Measure reindex time (should only process changed file)
-5. Query response time should be <50ms
+4. Query with both syntaxes: `cargo run -- query ./test_vault "tag:work"`
+5. Test graph: `cargo run -- graph stats ./test_vault`
+6. Verify all output is valid JSON
 
 ## Common Development Tasks
 
 ### Adding a New Query Operator
 
-1. Add variant to `Query` enum in `src/db/query.rs`
-2. Update `QueryParser::parse_primary()` to recognize new keyword
-3. Implement execution logic in `QueryExecutor::execute()`
-4. Add tests in `query.rs` test module
-5. Update README with new operator syntax
-
-### Adding a Neovim Command
-
-1. Add function in `nvim/lua/snot/commands.lua`
-2. Register command in `setup()` with `nvim_create_user_command`
-3. Add corresponding backend function in `backend.lua` if needed
-4. Add CLI subcommand in Rust if new functionality required
-5. Update README documentation
+1. Add variant to `Query` enum in `src/query/ast.rs`
+2. Add shorthand syntax in `ShorthandParser::parse_term()` in `src/query/parser.rs`
+3. Add SQL syntax in `SqlParser::parse_primary()` in `src/query/parser.rs`
+4. Update `is_sql_syntax()` detection if needed
+5. Implement execution logic in `QueryExecutor::execute_ids()` in `src/query/executor.rs`
+6. Add tests for both syntaxes
 
 ### Modifying Database Schema
 
-When changing `Note` struct:
+When changing `Note` struct or indexes:
 
-1. Update `Note` definition in `src/db/storage.rs`
-2. Update all indexes that might use new field
-3. Modify `insert()`, `update()`, `delete()` as needed
-4. **Important**: Old database files will fail to deserialize - bump version or add migration
-5. Update JSON serialization in command outputs
+1. Update `Note` definition in `src/note.rs`
+2. Update indexes in `src/db/index.rs` if new indexed field
+3. Modify `Database::insert()`, `update()`, `delete()` in `src/db/storage.rs`
+4. **Important**: Bump `VERSION` in `src/db/schema.rs` - old databases will return `SchemaVersionMismatch`
+5. Update `Vault::ingest_file()` if note creation changes
+6. Update JSON serialization in command outputs
 
 ### Extending Markdown Parser
 
-To support new markdown features:
-
-1. Add extraction logic to `src/parser/links.rs`
+1. Add extraction logic to `src/parser/markdown.rs`
 2. Update `ParsedNote` struct with new fields
-3. Update note processing in `src/commands/index.rs`
+3. Update `Vault::ingest_file()` to map new fields
 4. Add tests for new parsing logic
 
 ## Code Style and Conventions
 
-- Use `anyhow::Result` for error handling in application code
-- Use `thiserror` for library-level custom errors (currently not used but imported)
+- Use `SnotError` (thiserror) for library-level errors in `src/error.rs`
+- Use `anyhow::Result` only at CLI command level for context wrapping
 - Prefer `&Path` over `&PathBuf` in function signatures
-- Clone only when necessary to satisfy borrow checker
-- Use `rayon` par_iter for parallel processing of note collections
-- All CLI output for consumption should be JSON
+- All CLI output for consumption should be JSON via `serde_json`
 - Human-readable output uses `println!` with descriptive messages
+- No unnecessary traits - concrete types only
 
 ## Known Limitations and Future Work
 
-1. **Database Migration**: No migration strategy for schema changes
-2. **Watcher Lifecycle**: File watcher is leaked in watch mode
-3. **Tag Extraction**: Tags from all notes not easily queryable (would need tag aggregation command)
-4. **Conflict Resolution**: No handling of concurrent modifications
-5. **Graph Visualization**: Data structures support it, but no export command
-6. **Template Support**: Mentioned in README but not implemented
-7. **Daily Notes**: Common feature not yet implemented
+1. **Conflict Resolution**: No handling of concurrent modifications
+2. **Graph Visualization**: Data structures support it, but no export command
+3. **Template Support**: Mentioned in README but not implemented
+4. **Daily Notes**: Common feature not yet implemented
+5. **Database Migration**: Schema version checked but no migration path (requires reindex)
