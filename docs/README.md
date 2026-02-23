@@ -16,13 +16,11 @@ Welcome to the SNOT (Simple Note Organization Tool) documentation.
 ### Getting Started
 1. [Installation](../README.md#installation)
 2. [Quick Start](../README.md#quick-start)
-3. [Neovim Setup](../README.md#neovim-plugin)
 
 ### Core Features
-- [Query Language](query-syntax.md) - Search and filter notes
-- [File Picker](../README.md#file-picker) - Choose between fzf-lua, Telescope, or native picker
+- [Query Language](query-syntax.md) - Search and filter notes (shorthand + SQL-style)
+- [Graph Operations](../README.md#graph-operations) - Neighbors, orphans, shortest path
 - [Note Format](../README.md#note-format) - YAML frontmatter and wiki-links
-- [Auto-completion](../README.md#neovim-plugin) - Link and tag completion
 
 ### CLI Reference
 
@@ -33,7 +31,7 @@ snot init <vault-path>
 # Index notes
 snot index <vault-path> [--force]
 
-# Query notes
+# Query notes (shorthand or SQL-style)
 snot query <vault-path> <query>
 
 # Create note
@@ -45,20 +43,17 @@ snot backlinks <vault-path> <file>
 # List notes
 snot list <vault-path> [--query <query>]
 
+# List tags
+snot tags <vault-path>
+
+# Graph operations
+snot graph neighbors <vault-path> <note-id> [--depth N]
+snot graph orphans <vault-path>
+snot graph path <vault-path> <note-a> <note-b>
+snot graph stats <vault-path>
+
 # Watch for changes
 snot watch <vault-path>
-```
-
-### Neovim Commands
-
-```vim
-:NoteNew [name]        " Create new note
-:NoteFind              " Open file picker
-:NoteSearch [query]    " Search with query language
-:NoteBacklinks         " Show backlinks to current note
-:NoteIndex[!]          " Index vault (! to force)
-:NoteInit [path]       " Initialize vault
-:NoteLink              " Insert wiki-link to note
 ```
 
 ## Examples
@@ -66,7 +61,13 @@ snot watch <vault-path>
 ### Query Examples
 
 ```bash
-# Basic queries
+# Shorthand syntax
+snot query ~/notes "tag:work"
+snot query ~/notes "#work title:meeting"
+snot query ~/notes "~meting"
+snot query ~/notes "-tag:archived"
+
+# SQL-style syntax
 snot query ~/notes "tags CONTAINS 'work'"
 snot query ~/notes "content LIKE '%meeting%'"
 snot query ~/notes "links_to = 'project-plan'"
@@ -79,7 +80,9 @@ snot query ~/notes "tags CONTAINS 'work' AND NOT tags CONTAINS 'done'"
 
 # Complex queries
 snot query ~/notes "(tags CONTAINS 'work' OR tags CONTAINS 'personal') AND NOT tags CONTAINS 'archived'"
-snot query ~/notes "tags CONTAINS 'urgent' AND (tags CONTAINS 'bug' OR tags CONTAINS 'issue')"
+
+# Graph-aware queries
+snot query ~/notes "neighbors('project-plan', 2)"
 
 # Full SQL syntax
 snot query ~/notes "SELECT * FROM notes WHERE tags CONTAINS 'project'"
@@ -87,39 +90,19 @@ snot query ~/notes "SELECT * FROM notes WHERE tags CONTAINS 'project'"
 
 See [Query Syntax Guide](query-syntax.md) for complete documentation.
 
-### Neovim Configuration
-
-```lua
-{
-  dir = "~/dev/snot/nvim",
-  name = "snot",
-  opts = {
-    vault_path = "~/notes",
-    snot_bin = "snot",
-    picker = "auto",  -- or "fzf-lua", "telescope", "select"
-    enable_completion = true,
-  },
-  keys = {
-    { "<leader>nn", "<cmd>NoteNew<cr>", desc = "New note" },
-    { "<leader>nf", "<cmd>NoteFind<cr>", desc = "Find note" },
-    { "<leader>ns", "<cmd>NoteSearch<cr>", desc = "Search notes" },
-    { "<leader>nb", "<cmd>NoteBacklinks<cr>", desc = "Backlinks" },
-  },
-  cmd = { "NoteNew", "NoteFind", "NoteSearch", "NoteBacklinks", "NoteIndex", "NoteLink" },
-  ft = "markdown",
-}
-```
-
 ## Architecture
 
 SNOT consists of:
 
 1. **Rust CLI** - Core note management, indexing, and query execution
-2. **Neovim Plugin** - Editor integration with commands and pickers
-3. **Custom Database** - Fast in-memory note storage with multiple indexes
-4. **Query Language** - Powerful search with boolean logic
+2. **Custom Database** - Fast in-memory note storage with multiple indexes and link graph
+3. **Dual Query Language** - Shorthand for quick use, SQL-style for complex queries
 
 See [CLAUDE.md](../CLAUDE.md) for detailed architecture documentation.
+
+## Editor Integration
+
+The **[snot.nvim](https://github.com/yourusername/snot.nvim)** plugin provides Neovim integration with commands, file picking, and auto-completion. See its repository for setup instructions.
 
 ## Support
 

@@ -1,6 +1,6 @@
-# SQL Query Syntax Guide
+# Query Syntax Guide
 
-SNOT uses SQL-style queries for searching and filtering notes. This guide covers all available operations and how to combine them.
+SNOT supports two query syntaxes: **shorthand** for quick CLI use and **SQL-style** for complex queries. Both parse into the same AST and can be used interchangeably. This guide covers all available operations and how to combine them.
 
 ## Table of Contents
 
@@ -56,9 +56,6 @@ snot query ~/notes "WHERE tags CONTAINS 'meeting'"
 
 # Full SQL
 snot query ~/notes "SELECT * FROM notes WHERE tags CONTAINS 'project'"
-
-# From Neovim
-:NoteSearch tags CONTAINS 'work'
 ```
 
 **Note:** Tags can be defined in frontmatter or inline with `#tagname`.
@@ -81,9 +78,6 @@ snot query ~/notes "content LIKE '%database%'"
 
 # Search for a phrase
 snot query ~/notes "content LIKE '%customer feedback%'"
-
-# From Neovim
-:NoteSearch content LIKE '%todo%'
 ```
 
 **Note:** Use `%` as wildcards (optional - they're added automatically if omitted).
@@ -108,9 +102,6 @@ snot query ~/notes "links_to = 'project-plan'"
 
 # Find notes linking to notes matching a pattern
 snot query ~/notes "links_to LIKE '%weekly-review%'"
-
-# From Neovim
-:NoteSearch links_to = 'main-index'
 ```
 
 **Note:** Use the note's ID (kebab-case filename without extension).
@@ -133,9 +124,6 @@ snot query ~/notes "modified_date BETWEEN '2025-01-01' AND '2025-01-31'"
 
 # Notes from the last quarter
 snot query ~/notes "modified_date BETWEEN '2025-01-01' AND '2025-03-31'"
-
-# From Neovim
-:NoteSearch modified_date BETWEEN '2025-10-01' AND '2025-10-31'
 ```
 
 **Note:** Dates must be in `YYYY-MM-DD` format. Both dates are inclusive.
@@ -430,20 +418,6 @@ snot query ~/notes "tags CONTAINS 'work' AND NOT tags CONTAINS 'done'"
 snot query ~/notes "(tags CONTAINS 'work' OR tags CONTAINS 'personal') AND NOT tags CONTAINS 'archived'"
 snot query ~/notes "SELECT * FROM notes WHERE tags CONTAINS 'urgent' AND (tags CONTAINS 'bug' OR tags CONTAINS 'issue')"
 ```
-
-## Examples from Neovim
-
-```vim
-" Basic searches
-:NoteSearch tags CONTAINS 'work'
-:NoteSearch content LIKE '%important%'
-
-" Complex queries
-:NoteSearch tags CONTAINS 'work' AND tags CONTAINS 'todo'
-:NoteSearch (tags CONTAINS 'work' OR tags CONTAINS 'personal') AND modified_date BETWEEN '2025-10-01' AND '2025-10-31'
-```
-
----
 
 ## See Also
 

@@ -5,7 +5,7 @@ Below this line, if you see !!, treat that as a command to update the section of
 
 ## Project Overview
 
-SNOT (Simple Note Organization Tool) is a Rust-based note management system with Neovim integration. It serves as a fast, lightweight alternative to Obsidian, featuring a custom database with link graph, dual query language (shorthand + SQL-style), fuzzy search, and real-time file watching.
+SNOT (Simple Note Organization Tool) is a Rust-based note management system designed as a fast, lightweight alternative to Obsidian. Features a custom database with link graph, dual query language (shorthand + SQL-style), fuzzy search, and real-time file watching.
 
 ## Commands
 
@@ -127,7 +127,7 @@ src/
 
 6. **Proper Watcher Lifecycle**: `VaultWatcher` owns the `RecommendedWatcher` as a struct field (dropped via `Drop`). `poll(debounce_duration)` coalesces rapid events for the same file and returns batches. Watch command saves once per batch.
 
-7. **Error Strategy**: `thiserror` for structured library errors (`SnotError` in `error.rs`). `anyhow` only at CLI command level for context wrapping. Enables Neovim plugin to distinguish error types from JSON output.
+7. **Error Strategy**: `thiserror` for structured library errors (`SnotError` in `error.rs`). `anyhow` only at CLI command level for context wrapping. Structured errors enable consumers to distinguish error types from JSON output.
 
 8. **No Unnecessary Traits**: Concrete types tested with `tempfile::TempDir`. No `Storage` trait, no `Parser` trait.
 
@@ -165,116 +165,6 @@ The parser checks for SQL keywords (`CONTAINS`, `LIKE`, `BETWEEN`, `NOT column`,
 
 Load: `fs::read()` -> `schema::read_header()` (validate magic+version) -> `bincode::deserialize()` -> `Database`
 Save: `schema::write_header()` -> `bincode::serialize()` -> `fs::write()`
-
-## Neovim Plugin Notes
-
-**Note**: The Neovim plugin has been separated into its own repository: [snot.nvim](https://github.com/yourusername/snot.nvim)
-
-For plugin development, see the snot.nvim repository. The information below is kept for reference on how the plugin integrates with the CLI.
-
-### Neovim Functions Reference (in snot.nvim repo)
-
-**init.lua** - Plugin setup
-- `M.setup(opts)` - Initialize plugin with configuration options
-- `M.get_config()` - Get current plugin configuration
-
-**backend.lua** - Rust CLI communication
-- `M.run_command(args, callback)` - Execute snot CLI command asynchronously
-- `M.init_vault(vault_path, callback)` - Initialize a new vault
-- `M.index_vault(force, callback)` - Index vault (force=true to reindex all)
-- `M.create_note(name, callback)` - Create new note with name
-- `M.query_notes(query, callback)` - Execute SQL query
-- `M.get_backlinks(file_path, callback)` - Get backlinks for a file
-- `M.list_notes(query, callback)` - List all notes (optionally filtered)
-- `M.update_note(file_path, callback)` - Update single file metadata
-
-**commands.lua** - User command implementations
-- `M.setup(config)` - Register all Neovim user commands
-- `M.create_note(name)` - `:NoteNew` implementation
-- `M.find_note(query)` - `:NoteFind` implementation
-- `M.search_notes(query)` - `:NoteSearch` implementation
-- `M.show_backlinks()` - `:NoteBacklinks` implementation
-- `M.index_vault(force)` - `:NoteIndex` implementation
-- `M.init_vault(vault_path)` - `:NoteInit` implementation
-- `M.insert_link()` - `:NoteLink` implementation
-
-**picker.lua** - File picker abstraction
-- `M.pick(files, opts)` - Show picker with files (auto-detects fzf-lua/telescope/select)
-
-**ui.lua** - UI components
-- `M.show_results(results, title)` - Display query results in floating window
-
-**completion.lua** - Auto-completion
-- `M.setup()` - Initialize omnifunc completion
-- `M.omnifunc(findstart, base)` - Vim's omnifunc implementation
-- `M.setup_cmp()` - Initialize nvim-cmp integration (optional)
-
-### Picker Integration
-
-The plugin supports multiple pickers with auto-detection:
-
-1. **fzf-lua** (preferred): Fast, native Lua implementation
-   - Preview window with file content
-   - Fuzzy matching with highlighting
-
-2. **telescope.nvim** (alternative): If installed
-   - Full telescope features and customization
-
-3. **vim.ui.select** (fallback): Built-in Neovim picker
-   - Always available, no dependencies
-
-Configure with `opts.picker = "auto"` (default), `"fzf-lua"`, `"telescope"`, or `"select"`
-
-### Completion System
-
-Three completion modes supported:
-
-1. **Omnifunc** (built-in): Works everywhere, activated with `<C-X><C-O>`
-   - No dependencies required
-   - Completes wiki-links and tags
-
-2. **nvim-cmp** (optional): Better UX if user has nvim-cmp installed
-   - Automatic popup on typing
-   - Rich UI with icons and documentation
-
-3. **blink.cmp** (optional): High-performance completion framework
-   - Similar to nvim-cmp but faster
-   - Setup via blink.cmp source registration
-
-Completion triggers:
-
-- `[[` triggers note name completion
-- `#` triggers tag completion
-
-To integrate with blink.cmp, add snot as a source in your blink.cmp config:
-```lua
-{
-  'saghen/blink.cmp',
-  opts = {
-    sources = {
-      default = { 'lsp', 'path', 'snippets', 'buffer', 'snot' },
-      providers = {
-        snot = {
-          name = 'Snot',
-          module = 'snot.completion.blink',
-          enabled = function()
-            return vim.bo.filetype == 'markdown'
-          end,
-        },
-      },
-    },
-  },
-}
-```
-
-### Async Communication
-
-All backend calls use `vim.fn.jobstart` for async execution:
-
-- Non-blocking - editor remains responsive
-- stdout/stderr captured in buffers
-- Callback invoked on job completion
-- JSON parsed from stdout
 
 ## Testing Strategy
 
